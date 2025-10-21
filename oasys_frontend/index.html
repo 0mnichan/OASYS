@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OASYS</title>
+    <style>
+        :root {
+            --accent: #0078ff;
+            --accent-dark: #005ec4;
+            --bg: #f4f6f8;
+            --card: #fff;
+            --text: #222;
+        }
+
+        * {
+            box-sizing: border-box;
+            font-family: 'Poppins', Arial, sans-serif;
+        }
+
+        body {
+            background: var(--bg);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: var(--text);
+        }
+
+        .container {
+            width: 100%;
+            max-width: 400px;
+            background: var(--card);
+            padding: 2rem;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            animation: fadeIn 0.4s ease;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 1rem;
+            color: var(--accent);
+        }
+
+        .input-group {
+            margin-bottom: 1rem;
+        }
+
+        label {
+            font-weight: 500;
+            font-size: 0.9rem;
+            display: block;
+            margin-bottom: 0.3rem;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.7rem;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: var(--accent);
+        }
+
+        .captcha-box {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 0.5rem;
+        }
+
+        .captcha-box img {
+            height: 45px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+        }
+
+        .captcha-box button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.5rem 0.9rem;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        .captcha-box button:hover {
+            background: var(--accent-dark);
+        }
+
+        button.login-btn {
+            width: 100%;
+            background: var(--accent);
+            border: none;
+            color: white;
+            padding: 0.8rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button.login-btn:hover {
+            background: var(--accent-dark);
+        }
+
+        .loading {
+            text-align: center;
+            color: #888;
+            margin-top: 1rem;
+            display: none;
+        }
+
+        .attendance-container {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            padding: 1rem;
+            width: 100%;
+            height: 100%;
+        }
+
+        iframe {
+            width: 100%;
+            height: 90vh;
+            border: none;
+            border-radius: 12px;
+            background: white;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 📱 Mobile-first tweaks */
+        @media (max-width: 480px) {
+            .container {
+                margin: 1rem;
+                padding: 1.5rem;
+                border-radius: 12px;
+            }
+
+            input, button {
+                font-size: 0.9rem;
+            }
+
+            h1 {
+                font-size: 1.4rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="login-container">
+        <h1>OASYS</h1>
+        <p style="text-align:center;margin-top:-5px;margin-bottom:1.5rem;">
+  <s>bunk</s> attend wisely
+</p>
+
+
+        <div class="input-group">
+            <label for="netid">SRM NetID</label>
+            <input type="text" id="netid" placeholder="e.g. xy1234">
+        </div>
+
+        <div class="input-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" placeholder="SRM Portal Password">
+        </div>
+
+        <div class="input-group">
+            <label for="captcha">Captcha</label>
+            <div class="captcha-box">
+                <img id="captcha-img" src="" alt="Captcha">
+                <button id="refresh-captcha">↻</button>
+            </div>
+            <input type="text" id="captcha" placeholder="Enter captcha">
+        </div>
+
+        <button class="login-btn" id="login-btn">Login</button>
+        <div class="loading" id="loading">Logging in... Please wait</div>
+    </div>
+
+    <div class="attendance-container" id="attendance-container">
+        <iframe id="attendance-frame"></iframe>
+    </div>
+
+    <script>
+        const loginContainer = document.getElementById('login-container');
+        const attendanceContainer = document.getElementById('attendance-container');
+        const captchaImg = document.getElementById('captcha-img');
+        const refreshBtn = document.getElementById('refresh-captcha');
+        const loginBtn = document.getElementById('login-btn');
+        const loading = document.getElementById('loading');
+        const attendanceFrame = document.getElementById('attendance-frame');
+
+        const userId = Math.random().toString(36).substring(2, 10); // session ID per user
+
+        async function startLogin() {
+            const res = await fetch('/start_login/', {
+                method: 'POST',
+                body: new URLSearchParams({ user_id: userId })
+            });
+            const data = await res.json();
+            captchaImg.src = `data:image/png;base64,${data.captcha_image}`;
+        }
+
+        refreshBtn.onclick = async () => {
+            const res = await fetch('/refresh_captcha/', {
+                method: 'POST',
+                body: new URLSearchParams({ user_id: userId })
+            });
+            const data = await res.json();
+            captchaImg.src = `data:image/png;base64,${data.captcha_image}`;
+        };
+
+        loginBtn.onclick = async () => {
+            const netid = document.getElementById('netid').value.trim();
+            const password = document.getElementById('password').value.trim();
+            const captcha = document.getElementById('captcha').value.trim();
+            if (!netid || !password || !captcha) return alert('Please fill all fields.');
+
+            loading.style.display = 'block';
+            loginBtn.disabled = true;
+
+            const res = await fetch('/submit_login/', {
+                method: 'POST',
+                body: new URLSearchParams({
+                    user_id: userId,
+                    netid,
+                    password,
+                    captcha
+                })
+            });
+
+            const html = await res.text();
+
+            if (res.ok) {
+                loginContainer.style.display = 'none';
+                attendanceContainer.style.display = 'flex';
+                attendanceFrame.srcdoc = html;
+            } else {
+                alert("Login failed. Please check your credentials or captcha.");
+                loading.style.display = 'none';
+                loginBtn.disabled = false;
+                startLogin();
+            }
+        };
+
+        startLogin();
+    </script>
+</body>
+</html>

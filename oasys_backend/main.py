@@ -20,7 +20,7 @@ SRM_CAPTCHA_URL = "https://sp.srmist.edu.in/srmiststudentportal/captchas"
 SRM_ATTENDANCE_URL = "https://sp.srmist.edu.in/srmiststudentportal/students/report/studentAttendanceDetails.jsp"
 
 
-@app.api_route("/", methods=["GET", "HEAD"])
+@app.api_route("/stat", methods=["GET", "HEAD"])
 async def root():
     return Response(content="OASYS backend alive", media_type="text/plain")
 

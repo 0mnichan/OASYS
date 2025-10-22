@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, Form, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from base64 import b64encode
@@ -179,3 +179,7 @@ async def submit_login(
 @app.on_event("startup")
 async def start_cleanup():
     asyncio.create_task(cleanup_sessions())
+
+@app.api_route("/ping", methods=["GET", "HEAD"])
+async def ping():
+    return Response(content="pong", media_type="text/plain")

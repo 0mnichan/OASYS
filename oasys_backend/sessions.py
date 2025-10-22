@@ -1,10 +1,10 @@
 import httpx, asyncio, uuid, time
 
-# in-memory session store (RAM only)
+
 _sessions = {}
 
-# sessions expire after 15 min of inactivity
-SESSION_TTL = 900  # seconds
+
+SESSION_TTL = 900  
 
 
 class Session:
@@ -21,7 +21,7 @@ class Session:
 
 
 async def create_session(user_id):
-    # Remove existing if any
+    
     old = _sessions.pop(user_id, None)
     if old:
         await old.close()
@@ -37,7 +37,7 @@ def get_session(user_id):
     if not sess:
         return None
 
-    # Expire after TTL
+    
     if time.time() - sess.last_used > SESSION_TTL:
         try:
             asyncio.create_task(sess.close())
@@ -63,4 +63,4 @@ async def cleanup_sessions():
                 pass
             _sessions.pop(uid, None)
             print(f"[x] Cleaned expired session for {uid}")
-        await asyncio.sleep(300)  # check every 5 mins
+        await asyncio.sleep(300)  

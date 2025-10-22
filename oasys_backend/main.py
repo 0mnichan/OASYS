@@ -56,12 +56,12 @@ async def submit_login(
     if not session:
         return HTMLResponse("<h3>Session expired</h3>", status_code=400)
 
-    # fetch login page
+    
     login_page = await session.client.get(SRM_LOGIN_URL)
     hidden_fields = parse_hidden_fields(login_page.text)
     csrf_value = hidden_fields.get("hdnCSRF", "")
 
-    # login
+    
     payload = {
         "login": netid,
         "passwd": password,
@@ -79,7 +79,7 @@ async def submit_login(
     if login_res.status_code >= 400:
         return HTMLResponse("<h3>Login failed</h3>", status_code=401)
 
-    # fetch attendance page
+    
     attendance_payload = {
         "iden": "9",
         "filter": "",
@@ -93,20 +93,20 @@ async def submit_login(
     if not table:
         return HTMLResponse("<h3>Attendance table not found.</h3>")
 
-    # Add new header
+    
     header_row = table.find("tr")
     new_th = soup.new_tag("th")
     new_th.string = "Action"
     header_row.append(new_th)
 
-    # Calculation functions
+    
     def req_attendance(present, total, percentage=75):
         return math.ceil((percentage * total - 100 * present) / (100 - percentage))
 
     def days_to_bunk(present, total, percentage=75):
         return math.floor((100 * present - percentage * total) / percentage)
 
-    # iterate each subject row
+    
     for row in table.find_all("tr")[1:]:
         cols = row.find_all("td")
         if len(cols) < 8:
@@ -117,7 +117,7 @@ async def submit_login(
         except ValueError:
             continue
 
-        # skip total row
+        
         if "Total" in cols[0].text:
             continue
 

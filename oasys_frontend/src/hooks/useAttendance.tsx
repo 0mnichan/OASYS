@@ -8,7 +8,7 @@ export interface Course {
   total: number;
   percentage: number;
   action: string;
-  canSkip?: number; // positive => can skip, negative => needs this many classes
+  canSkip?: number;
 }
 
 interface AttendanceData {
@@ -17,6 +17,7 @@ interface AttendanceData {
   totalClassesAttended: number;
   totalClassesHeld: number;
   lastUpdated: Date;
+  period?: string; // 👈 new field for "18/Jul/2025 to 24/Oct/2025"
 }
 
 export const useAttendance = () => {
@@ -31,7 +32,20 @@ export const useAttendance = () => {
       const table = doc.querySelector("table");
       if (!table) throw new Error("Attendance table not found in HTML");
 
-      const rows = Array.from(table.querySelectorAll("tr")).slice(1); // skip header
+      // ✅ Extract "During the Period" text
+      let periodText = "";
+      const header = doc.querySelector(".card-header");
+      if (header) {
+        const match = header.textContent?.match(/During the Period:\s*(.*)/i);
+        if (match) {
+          periodText = match[1]
+            .replace(/To/gi, "to")
+            .replace(/\s+/g, " ")
+            .trim();
+        }
+      }
+
+      const rows = Array.from(table.querySelectorAll("tr")).slice(1);
 
       const courses: Course[] = [];
       let totalHeld = 0;
@@ -39,26 +53,18 @@ export const useAttendance = () => {
 
       for (const row of rows) {
         const cols = Array.from(row.querySelectorAll("td"));
-        if (cols.length < 4) continue; // skip malformed rows
+        if (cols.length < 4) continue;
 
-        // typical SRM table indices (based on your backend scraping):
-        // 0 -> subject name
-        // 1 -> something (maybe code)
-        // 2 -> total
-        // 3 -> present/attended
-        // ... last -> Action (we appended)
+        const code = cols[0]?.textContent?.trim() || "Unknown";
+        if (code.toLowerCase().includes("total")) continue;
 
-        const name = cols[0].textContent?.trim() || "Unknown";
-        const maybeCode = cols[1]?.textContent?.trim() || undefined;
-        const totalText = cols[2]?.textContent?.trim() || "0";
-        const attendedText = cols[3]?.textContent?.trim() || "0";
+        const name = cols[1]?.textContent?.trim() || "";
+        const total = parseInt(cols[2]?.textContent?.trim() || "0");
+        const attended = parseInt(cols[3]?.textContent?.trim() || "0");
         const actionText = cols[cols.length - 1]?.textContent?.trim() || "";
 
-        const total = parseInt(totalText.replace(/\D/g, "")) || 0;
-        const attended = parseInt(attendedText.replace(/\D/g, "")) || 0;
         const percentage = total ? (attended / total) * 100 : 0;
 
-        // parse canSkip from actionText (examples: "Can bunk 4 hrs", "Attend 3 hrs", "Exactly at 75%")
         let canSkip: number | undefined = undefined;
         const canBunkMatch = actionText.match(/Can\s+.*?(\d+)\s*(?:hrs|classes)?/i);
         const attendNeedMatch = actionText.match(/Attend\s+(\d+)\s*(?:hrs|classes)?/i);
@@ -67,14 +73,14 @@ export const useAttendance = () => {
         if (canBunkMatch) {
           canSkip = parseInt(canBunkMatch[1], 10);
         } else if (attendNeedMatch) {
-          canSkip = -parseInt(attendNeedMatch[1], 10); // negative: needs to attend more
+          canSkip = -parseInt(attendNeedMatch[1], 10);
         } else if (exactMatch) {
           canSkip = 0;
         }
 
         courses.push({
-          id: name,
-          code: maybeCode,
+          id: code,
+          code,
           name,
           attended,
           total,
@@ -95,6 +101,7 @@ export const useAttendance = () => {
         totalClassesAttended: totalAttended,
         totalClassesHeld: totalHeld,
         lastUpdated: new Date(),
+        period: periodText,
       };
     };
 

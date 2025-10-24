@@ -89,15 +89,11 @@ const LoginForm: React.FC = () => {
       const html = await res.text();
 
       if (res.ok) {
-        // store HTML for dashboard parsing
         sessionStorage.setItem("attendanceHTML", html);
-        // optional: store netid so dashboard can say "Welcome, <netid>"
         sessionStorage.setItem("oasys_netid", netid);
         navigate("/dashboard");
       } else {
-        // backend returns HTMLResponse error messages; show small message
         setError("Login failed — check credentials or captcha.");
-        // reload a fresh captcha
         await fetchCaptcha();
       }
     } catch (err: any) {
@@ -110,80 +106,93 @@ const LoginForm: React.FC = () => {
   };
 
   useEffect(() => {
-    // If there's already an attendance HTML (from earlier), prefer fresh captcha start
     fetchCaptcha(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
-          {error}
-        </div>
-      )}
+    <div className="flex justify-center mt-4 mb-4">
+      <div className="w-full max-w-md bg-white dark:bg-gray-900 shadow-xl rounded-xl p-6 border border-gray-200 dark:border-gray-700 transition-colors">
+        <h1 className="text-2xl font-semibold text-center mb-5 text-gray-900 dark:text-white">
+          Sign In
+        </h1>
 
-      <div>
-        <input
-          type="text"
-          placeholder="SRM NetID"
-          value={netid}
-          onChange={(e) => setNetid(e.target.value)}
-          className="w-full p-2 border rounded"
-          autoComplete="username"
-        />
-      </div>
-
-      <div>
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full p-2 border rounded"
-          autoComplete="current-password"
-        />
-      </div>
-
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-2">
-          {captchaLoading ? (
-            <div className="h-10 w-24 flex items-center justify-center border rounded bg-muted-foreground/5 text-xs">
-              Loading...
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {error && (
+            <div className="text-sm text-red-600 bg-red-100 dark:bg-red-600/20 p-2 rounded text-center">
+              {error}
             </div>
-          ) : captchaImg ? (
-            // Use img with alt; if data URL is invalid, browser will show broken image
-            <img src={captchaImg} alt="captcha" className="h-10 border rounded" />
-          ) : (
-            <div className="h-10 w-24 border rounded bg-muted-foreground/5" />
           )}
+
+          <input
+            type="text"
+            placeholder="SRM NetID"
+            value={netid}
+            onChange={(e) => setNetid(e.target.value)}
+            className="w-full p-2 border rounded-md bg-gray-50 text-gray-900 placeholder:text-gray-500 
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 transition 
+                       dark:bg-gray-800 dark:text-white dark:placeholder-gray-400"
+            autoComplete="username"
+          />
+
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full p-2 border rounded-md bg-gray-50 text-gray-900 placeholder:text-gray-500 
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 transition 
+                       dark:bg-gray-800 dark:text-white dark:placeholder-gray-400"
+            autoComplete="current-password"
+          />
+
+          {/* Captcha Box */}
+          <div className="flex items-center justify-between border rounded-md bg-gray-50 dark:bg-gray-800 p-2">
+            {captchaLoading ? (
+              <div className="h-10 w-24 flex items-center justify-center text-xs text-gray-500 dark:text-gray-400">
+                Loading...
+              </div>
+            ) : captchaImg ? (
+              <img
+                src={captchaImg}
+                alt="Captcha"
+                className="h-10 w-auto rounded-md border bg-white dark:bg-gray-900"
+              />
+            ) : (
+              <div className="h-10 w-24 border rounded bg-gray-100 dark:bg-gray-700" />
+            )}
+
+            <button
+              type="button"
+              onClick={refreshCaptcha}
+              className="text-sm px-2 py-1 rounded-md text-blue-600 hover:bg-blue-50 
+                         dark:text-blue-400 dark:hover:bg-gray-700 transition"
+              disabled={captchaLoading}
+            >
+              Change
+            </button>
+          </div>
+
+          <input
+            type="text"
+            placeholder="Enter the captcha code"
+            value={captcha}
+            onChange={(e) => setCaptcha(e.target.value)}
+            className="w-full p-2 border rounded-md bg-gray-50 text-gray-900 placeholder:text-gray-500 
+                       focus:outline-none focus:ring-2 focus:ring-blue-500 transition 
+                       dark:bg-gray-800 dark:text-white dark:placeholder-gray-400"
+          />
+
           <button
-            type="button"
-            onClick={refreshCaptcha}
-            className="px-2 py-1 border rounded text-sm"
-            disabled={captchaLoading}
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 text-white py-2 rounded-md font-medium hover:bg-blue-700 
+                       transition disabled:opacity-60 dark:bg-blue-600 dark:hover:bg-blue-500"
           >
-            ↻
+            {loading ? "Logging in..." : "Sign In"}
           </button>
-        </div>
+        </form>
       </div>
-
-      <input
-        type="text"
-        placeholder="Enter captcha"
-        value={captcha}
-        onChange={(e) => setCaptcha(e.target.value)}
-        className="w-full p-2 border rounded"
-      />
-
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full bg-primary text-white py-2 rounded-md"
-      >
-        {loading ? "Logging in..." : "Login"}
-      </button>
-    </form>
+    </div>
   );
 };
 

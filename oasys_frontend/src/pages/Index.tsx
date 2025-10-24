@@ -128,17 +128,17 @@ const Index = () => {
         <div className="w-full max-w-4xl mx-auto px-4 py-12 flex flex-col items-center relative z-10">
           <div className="text-center mb-12 animate-fade-in" style={{ animationDelay: '0.1s' }}>
             <div className="inline-flex items-center gap-2 mb-4">
-              <Sparkles className="w-8 h-8 text-primary animate-pulse" />
+              
               <h1 className="text-5xl md:text-6xl font-bold tracking-tight bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                OASIS
+                OASYS
               </h1>
-              <Sparkles className="w-8 h-8 text-primary animate-pulse" style={{ animationDelay: '0.5s' }} />
+              
             </div>
             <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl mx-auto mb-6">
-              Optimal Attendance System for SRM Students
+              Optimal Attendance SYStem for SRM Ramapuram Students
             </p>
             <p className="text-sm text-muted-foreground max-w-xl mx-auto">
-              Track your attendance, plan your leaves, and never miss the 75% threshold with our intelligent analytics
+              Never miss the 75% attendance requirement again.
             </p>
           </div>
           

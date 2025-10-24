@@ -1,36 +1,53 @@
 from fastapi import FastAPI, Form, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from base64 import b64encode
 from bs4 import BeautifulSoup
 import math
 import os
-from sessions import create_session, get_session
-from utils import parse_hidden_fields
 import asyncio
 from sessions import create_session, get_session, cleanup_sessions
+from utils import parse_hidden_fields
 
 app = FastAPI()
 
-frontend_path = os.path.join(os.path.dirname(__file__), "../oasys_frontend")
-app.mount("/static", StaticFiles(directory=frontend_path), name="static")
+# ✅ Serve built frontend (React/Vite build output)
+frontend_path = os.path.join(os.path.dirname(__file__), "../oasys_frontend/dist")
 
+# Mount static assets (like JS/CSS under /assets)
+app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
+
+# --- SRM portal URLs ---
 SRM_LOGIN_URL = "https://sp.srmist.edu.in/srmiststudentportal/students/loginManager/youLogin.jsp"
 SRM_CAPTCHA_URL = "https://sp.srmist.edu.in/srmiststudentportal/captchas"
 SRM_ATTENDANCE_URL = "https://sp.srmist.edu.in/srmiststudentportal/students/report/studentAttendanceDetails.jsp"
 
 
+# --- Health checks ---
 @app.api_route("/stat", methods=["GET", "HEAD"])
-async def root():
+async def stat():
     return Response(content="OASYS backend alive", media_type="text/plain")
 
+@app.api_route("/ping", methods=["GET", "HEAD"])
+async def ping():
+    return Response(content="pong", media_type="text/plain")
 
+
+# --- Serve frontend (React app) ---
 @app.get("/", response_class=HTMLResponse)
-async def root():
-    with open(os.path.join(frontend_path, "index.html"), "r", encoding="utf-8") as f:
-        return f.read()
+async def serve_index():
+    return FileResponse(os.path.join(frontend_path, "index.html"))
+
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+async def serve_spa(full_path: str):
+    """Catch-all route for React Router (dashboard, etc.)"""
+    index_file = os.path.join(frontend_path, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
+    return Response(content="Frontend not built yet", media_type="text/plain", status_code=404)
 
 
+# --- Core backend routes ---
 @app.post("/start_login/")
 async def start_login(user_id: str = Form(...)):
     session = await create_session(user_id)
@@ -61,12 +78,11 @@ async def submit_login(
     if not session:
         return HTMLResponse("<h3>Session expired</h3>", status_code=400)
 
-    
+    # --- Login page and hidden CSRF fields ---
     login_page = await session.client.get(SRM_LOGIN_URL)
     hidden_fields = parse_hidden_fields(login_page.text)
     csrf_value = hidden_fields.get("hdnCSRF", "")
 
-    
     payload = {
         "login": netid,
         "passwd": password,
@@ -84,7 +100,7 @@ async def submit_login(
     if login_res.status_code >= 400:
         return HTMLResponse("<h3>Login failed</h3>", status_code=401)
 
-    
+    # --- Fetch attendance page ---
     attendance_payload = {
         "iden": "9",
         "filter": "",
@@ -98,20 +114,19 @@ async def submit_login(
     if not table:
         return HTMLResponse("<h3>Attendance table not found.</h3>")
 
-    
+    # --- Add "Action" column ---
     header_row = table.find("tr")
     new_th = soup.new_tag("th")
     new_th.string = "Action"
     header_row.append(new_th)
 
-    
     def req_attendance(present, total, percentage=75):
         return math.ceil((percentage * total - 100 * present) / (100 - percentage))
 
     def days_to_bunk(present, total, percentage=75):
         return math.floor((100 * present - percentage * total) / percentage)
 
-    
+    # --- Modify each row with calculated actions ---
     for row in table.find_all("tr")[1:]:
         cols = row.find_all("td")
         if len(cols) < 8:
@@ -121,8 +136,6 @@ async def submit_login(
             present = int(cols[3].text.strip())
         except ValueError:
             continue
-
-        
         if "Total" in cols[0].text:
             continue
 
@@ -144,6 +157,7 @@ async def submit_login(
         new_td["style"] = f"background:{color}; font-weight:bold; text-align:center;"
         row.append(new_td)
 
+    # --- Return modified HTML ---
     html_out = f"""
     <html>
     <head>
@@ -178,13 +192,10 @@ async def submit_login(
     </body>
     </html>
     """
-
     return HTMLResponse(html_out)
 
+
+# --- Background task for cleaning up old sessions ---
 @app.on_event("startup")
 async def start_cleanup():
     asyncio.create_task(cleanup_sessions())
-
-@app.api_route("/ping", methods=["GET", "HEAD"])
-async def ping():
-    return Response(content="pong", media_type="text/plain")

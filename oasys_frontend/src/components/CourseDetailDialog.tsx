@@ -1,200 +1,115 @@
 import React, { useState, useEffect } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Course } from "@/hooks/useAttendance";
-import ProgressRing from "./ProgressRing";
-import {
-  AlertCircle,
-  CheckCircle2,
-  Calculator,
-  TrendingUp,
-  TrendingDown,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { AlertCircle, CheckCircle2, Calculator, TrendingUp, TrendingDown } from "lucide-react";
 
-interface CourseDetailDialogProps {
-  course: Course | null;
-  open: boolean;
-  onClose: () => void;
-}
+interface Props { course: Course | null; open: boolean; onClose: () => void; }
 
-const CourseDetailDialog: React.FC<CourseDetailDialogProps> = ({
-  course,
-  open,
-  onClose,
-}) => {
-  const [action, setAction] = useState<"miss" | "attend">("miss");
+const Ring = ({ pct, size = 110 }: { pct: number; size?: number }) => {
+  const r = (size - 12) / 2, circ = 2 * Math.PI * r, dash = (pct / 100) * circ;
+  const color = pct >= 85 ? 'var(--accent-green)' : pct >= 75 ? 'var(--accent-amber)' : 'var(--accent-red)';
+  return (
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--border-subtle)" strokeWidth={9} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={7}
+        strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+        style={{ transition: 'stroke-dasharray 1s ease', filter: `drop-shadow(0 0 6px ${color}88)` }} />
+    </svg>
+  );
+};
+
+const CourseDetailDialog: React.FC<Props> = ({ course, open, onClose }) => {
+  const [action, setAction] = useState<'miss' | 'attend'>('miss');
   const [hours, setHours] = useState(0);
 
-  // ✅ Reset when dialog closes or course changes
-  useEffect(() => {
-    if (!open) {
-      setAction("miss");
-      setHours(0);
-    }
-  }, [open, course]);
-
+  useEffect(() => { if (!open) { setAction('miss'); setHours(0); } }, [open, course]);
   if (!course) return null;
 
-  const simulateAttendance = () => {
-    let totalAfter = course.total;
-    let attendedAfter = course.attended;
-
-    if (action === "miss") {
-      totalAfter = course.total + hours;
-      attendedAfter = course.attended;
-    } else {
-      totalAfter = course.total + hours;
-      attendedAfter = course.attended + hours;
-    }
-
-    const percentageAfter =
-      totalAfter > 0 ? (attendedAfter / totalAfter) * 100 : 0;
-    return {
-      total: totalAfter,
-      attended: attendedAfter,
-      percentage: percentageAfter.toFixed(2),
-    };
-  };
-
-  const simulation = simulateAttendance();
+  const totalAfter = course.total + hours;
+  const attendedAfter = action === 'attend' ? course.attended + hours : course.attended;
+  const pctAfter = totalAfter > 0 ? (attendedAfter / totalAfter) * 100 : 0;
+  const pctColor = course.percentage >= 85 ? 'var(--accent-green)' : course.percentage >= 75 ? 'var(--accent-amber)' : 'var(--accent-red)';
+  const skip = course.canSkip ?? 0;
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent style={{ maxWidth: 560, background: 'var(--bg-glass)', backdropFilter: 'blur(28px)', WebkitBackdropFilter: 'blur(28px)', border: '1px solid var(--border-glass)', borderRadius: 24, padding: '28px 32px', maxHeight: '88vh', overflowY: 'auto' }}>
         <DialogHeader>
-          <DialogTitle className="text-xl sm:text-2xl">{course.name}</DialogTitle>
-          <DialogDescription>Course Code: {course.code}</DialogDescription>
+          <DialogTitle style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20, color: 'var(--text-primary)', lineHeight: 1.2 }}>{course.name}</DialogTitle>
+          <DialogDescription style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-tertiary)', letterSpacing: '0.08em', marginTop: 4 }}>{course.code}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 sm:space-y-6 py-4">
-          {/* Current Status */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 sm:p-6 bg-muted/50 rounded-lg">
-            <div className="w-full sm:flex-1">
-              <p className="text-sm text-muted-foreground mb-1">
-                Current Attendance
-              </p>
-              <p className="text-3xl sm:text-4xl font-bold">
-                {course.percentage.toFixed(1)}%
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {course.attended} of {course.total} classes attended
-              </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, marginTop: 20 }}>
 
-              {/* ✅ Show same “Can skip / Need” line */}
-              <div className="mt-3">
-                {course.canSkip !== undefined &&
-                  (course.canSkip > 0 ? (
-                    <Badge variant="default" className="gap-1 text-white-600 dark:text-white-400">
-                      <TrendingUp className="w-3 h-3" />
-                      Can skip {course.canSkip} {course.canSkip === 1 ? "class" : "classes"}
-                    </Badge>
-                  ) : course.canSkip === 0 ? (
-                    <Badge variant="outline" className="gap-1 text-yellow-600 dark:text-yellow-400">
-                      <AlertCircle className="w-3 h-3" />
-                      At threshold
-                    </Badge>
-                  ) : (
-                    <Badge variant="destructive" className="gap-1">
-                      <TrendingDown className="w-3 h-3" />
-                      Need {Math.abs(course.canSkip)} more
-                    </Badge>
-                  ))}
+          {/* Current status */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, background: 'var(--bg-tile)', border: '1px solid var(--border-card)', borderRadius: 16, padding: '20px 24px', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-label)', letterSpacing: '0.15em', marginBottom: 8, fontWeight: 700 }}>CURRENT ATTENDANCE</div>
+              <div style={{ fontSize: 40, fontWeight: 800, fontFamily: 'var(--font-mono)', color: pctColor, lineHeight: 1, textShadow: `0 0 20px ${pctColor}66` }}>{course.percentage.toFixed(1)}%</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6 }}>{course.attended} of {course.total} classes</div>
+              <div style={{ marginTop: 12 }}>
+                {skip > 0
+                  ? <Chip color="var(--accent-green)"><TrendingUp size={11} />Can skip {skip} {skip === 1 ? 'class' : 'classes'}</Chip>
+                  : skip < 0
+                    ? <Chip color="var(--accent-red)"><TrendingDown size={11} />Need {Math.abs(skip)} more</Chip>
+                    : <Chip color="var(--accent-amber)"><AlertCircle size={11} />At threshold</Chip>
+                }
               </div>
             </div>
-
-            <ProgressRing
-              progress={course.percentage}
-              size={window.innerWidth < 640 ? 100 : 120}
-              strokeWidth={8}
-            />
+            <Ring pct={course.percentage} size={110} />
           </div>
 
-          {/* Attendance Calculator */}
-          <div className="p-4 sm:p-6 border rounded-lg space-y-4">
-            <div className="flex items-center gap-2 mb-4">
-              <Calculator className="w-5 h-5 text-primary" />
-              <h3 className="text-base sm:text-lg font-semibold">
-                Attendance Calculator
-              </h3>
+          {/* Calculator */}
+          <div style={{ background: 'var(--bg-tile)', border: '1px solid var(--border-card)', borderRadius: 16, padding: '20px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <Calculator size={15} style={{ color: 'var(--accent-blue)' }} />
+              <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>Attendance Calculator</span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-sm sm:text-base">
-              <span className="text-muted-foreground">If you</span>
-              <Select
-                value={action}
-                onValueChange={(value: "miss" | "attend") => setAction(value)}
-              >
-                <SelectTrigger className="w-[120px] h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="miss">miss</SelectItem>
-                  <SelectItem value="attend">attend</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                type="number"
-                min="0"
-                value={hours || ""}
-                onChange={(e) =>
-                  setHours(Math.max(0, parseInt(e.target.value) || 0))
-                }
-                className="w-[100px] h-10 text-center text-lg font-semibold"
-                placeholder="0"
-              />
-              <span className="text-muted-foreground">hours</span>
-            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>If you</span>
 
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => {
-                setHours(0);
-                setAction("miss");
-              }}
-            >
-              Reset
-            </Button>
-
-            {/* Simulation Result */}
-            <div className="mt-4 p-4 bg-primary/5 rounded-lg border border-primary/20 animate-fade-in">
-              <p className="text-sm text-muted-foreground mb-2">
-                Projected Attendance
-              </p>
-              <div className="flex items-baseline gap-2 flex-wrap">
-                <span className="text-2xl sm:text-3xl font-bold text-primary">
-                  {simulation.percentage}%
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  ({simulation.attended}/{simulation.total} classes)
-                </span>
+              {/* Action toggle */}
+              <div style={{ display: 'flex', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-card)' }}>
+                {(['miss', 'attend'] as const).map(a => (
+                  <button key={a} onClick={() => setAction(a)} style={{
+                    padding: '7px 14px', fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                    cursor: 'pointer', border: 'none', transition: 'all 0.15s ease',
+                    background: action === a ? (a === 'miss' ? 'var(--accent-red)' : 'var(--accent-green)') : 'var(--bg-card)',
+                    color: action === a ? '#fff' : 'var(--text-tertiary)',
+                  }}>{a}</button>
+                ))}
               </div>
-              {parseFloat(simulation.percentage) < 75 && (
-                <p className="text-sm text-destructive mt-2 flex items-center gap-1">
-                  <AlertCircle className="w-4 h-4" />
-                  Below minimum requirement of 75%
-                </p>
+
+              {/* Hours input */}
+              <input type="number" min="0" value={hours || ''} placeholder="0"
+                onChange={e => setHours(Math.max(0, parseInt(e.target.value) || 0))}
+                style={{ width: 70, padding: '7px 10px', borderRadius: 10, border: '1px solid var(--border-card)', background: 'var(--bg-card)', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 700, textAlign: 'center', outline: 'none' }}
+              />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>hours</span>
+
+              <button onClick={() => { setHours(0); setAction('miss'); }}
+                style={{ marginLeft: 'auto', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                Reset
+              </button>
+            </div>
+
+            {/* Result */}
+            <div style={{ marginTop: 16, padding: '16px 20px', borderRadius: 12, background: pctAfter >= 75 ? 'color-mix(in srgb, var(--accent-green) 7%, transparent)' : 'color-mix(in srgb, var(--accent-red) 7%, transparent)', border: `1px solid ${pctAfter >= 75 ? 'color-mix(in srgb, var(--accent-green) 25%, transparent)' : 'color-mix(in srgb, var(--accent-red) 25%, transparent)'}` }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-label)', letterSpacing: '0.14em', marginBottom: 8, fontWeight: 700 }}>PROJECTED ATTENDANCE</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 32, fontWeight: 800, fontFamily: 'var(--font-mono)', color: pctAfter >= 75 ? 'var(--accent-green)' : 'var(--accent-red)' }}>{pctAfter.toFixed(2)}%</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-tertiary)' }}>({attendedAfter}/{totalAfter} classes)</span>
+              </div>
+              {pctAfter < 75 && hours > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 12, color: 'var(--accent-red)', fontFamily: 'var(--font-mono)' }}>
+                  <AlertCircle size={12} />Below 75% minimum requirement
+                </div>
               )}
-              {parseFloat(simulation.percentage) >= 75 && hours > 0 && (
-                <p className="text-sm text-white-600 dark:text-white-400 mt-2 flex items-center gap-1">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Above minimum requirement!
-                </p>
+              {pctAfter >= 75 && hours > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 12, color: 'var(--accent-green)', fontFamily: 'var(--font-mono)' }}>
+                  <CheckCircle2 size={12} />Above minimum requirement
+                </div>
               )}
             </div>
           </div>
@@ -203,5 +118,11 @@ const CourseDetailDialog: React.FC<CourseDetailDialogProps> = ({
     </Dialog>
   );
 };
+
+const Chip = ({ color, children }: { color: string; children: React.ReactNode }) => (
+  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)', color, background: `color-mix(in srgb, ${color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 28%, transparent)`, padding: '4px 10px', borderRadius: 8 }}>
+    {children}
+  </span>
+);
 
 export default CourseDetailDialog;

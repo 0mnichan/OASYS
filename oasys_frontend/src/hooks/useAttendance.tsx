@@ -17,7 +17,9 @@ interface AttendanceData {
   totalClassesAttended: number;
   totalClassesHeld: number;
   lastUpdated: Date;
-  period?: string; // 👈 new field for "18/Jul/2025 to 24/Oct/2025"
+  period?: string;
+  studentName?: string;
+  regNumber?: string;
 }
 
 export const useAttendance = () => {
@@ -32,21 +34,24 @@ export const useAttendance = () => {
       const table = doc.querySelector("table");
       if (!table) throw new Error("Attendance table not found in HTML");
 
-      // ✅ Extract "During the Period" text
+      // Student name scraped from portal home page (injected as hidden divs)
+      // Fall back to netid stored at login time
+      const scrapedName = doc.getElementById("oasys-student-name")?.textContent?.trim() || "";
+      const regNumber = doc.getElementById("oasys-reg-number")?.textContent?.trim() || "";
+      const netid = sessionStorage.getItem("oasys_netid") || "";
+      const studentName = scrapedName || netid;
+
+      // Extract "During the Period" text
       let periodText = "";
       const header = doc.querySelector(".card-header");
       if (header) {
         const match = header.textContent?.match(/During the Period:\s*(.*)/i);
         if (match) {
-          periodText = match[1]
-            .replace(/To/gi, "to")
-            .replace(/\s+/g, " ")
-            .trim();
+          periodText = match[1].replace(/To/gi, "to").replace(/\s+/g, " ").trim();
         }
       }
 
       const rows = Array.from(table.querySelectorAll("tr")).slice(1);
-
       const courses: Course[] = [];
       let totalHeld = 0;
       let totalAttended = 0;
@@ -102,6 +107,8 @@ export const useAttendance = () => {
         totalClassesHeld: totalHeld,
         lastUpdated: new Date(),
         period: periodText,
+        studentName,
+        regNumber,
       };
     };
 

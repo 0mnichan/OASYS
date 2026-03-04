@@ -15,9 +15,11 @@ frontend_path = os.path.join(os.path.dirname(__file__), "../oasys_frontend/dist"
 
 app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
 
-SRM_LOGIN_URL = "https://sp.srmist.edu.in/srmiststudentportal/students/loginManager/youLogin.jsp"
-SRM_CAPTCHA_URL = "https://sp.srmist.edu.in/srmiststudentportal/captchas"
-SRM_ATTENDANCE_URL = "https://sp.srmist.edu.in/srmiststudentportal/students/report/studentAttendanceDetails.jsp"
+SRM_BASE_URL = "https://sp.srmist.edu.in/srmiststudentportal"
+SRM_LOGIN_URL = f"{SRM_BASE_URL}/students/loginManager/youLogin.jsp"
+SRM_CAPTCHA_URL = f"{SRM_BASE_URL}/captchas"
+SRM_ATTENDANCE_URL = f"{SRM_BASE_URL}/students/report/studentAttendanceDetails.jsp"
+SRM_HOME_URL = f"{SRM_BASE_URL}/students/loginManager/UserHomePage.jsp"
 
 
 @app.api_route("/stat", methods=["GET", "HEAD"])
@@ -35,7 +37,6 @@ async def serve_index():
 
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def serve_spa(full_path: str):
-    """Catch-all route for React Router (dashboard, etc.)"""
     index_file = os.path.join(frontend_path, "index.html")
     if os.path.exists(index_file):
         return FileResponse(index_file)
@@ -92,6 +93,21 @@ async def submit_login(
     login_res = await session.client.post(SRM_LOGIN_URL, data=payload)
     if login_res.status_code >= 400:
         return HTMLResponse("<h3>Login failed</h3>", status_code=401)
+
+    # Fetch home page to get student name and reg number
+    # From the HTML: first sidenav-footer-subtitle = reg number, second = name
+    student_name = ""
+    reg_number = ""
+    try:
+        home_res = await session.client.get(SRM_HOME_URL)
+        home_soup = BeautifulSoup(home_res.text, "html.parser")
+        subtitles = home_soup.find_all("div", class_="sidenav-footer-subtitle")
+        if len(subtitles) >= 1:
+            reg_number = subtitles[0].get_text(strip=True)
+        if len(subtitles) >= 2:
+            student_name = subtitles[1].get_text(strip=True)
+    except Exception:
+        pass  # frontend falls back to netid
 
     attendance_payload = {
         "iden": "9",
@@ -153,29 +169,15 @@ async def submit_login(
         <meta charset="utf-8"/>
         <title>OASYS Attendance</title>
         <style>
-            body {{
-                font-family: Arial, sans-serif;
-                background: #f9f9f9;
-                padding: 20px;
-            }}
-            table {{
-                border-collapse: collapse;
-                width: 100%;
-                background: white;
-                box-shadow: 0 0 10px rgba(0,0,0,0.1);
-            }}
-            th, td {{
-                border: 1px solid #ddd;
-                padding: 8px;
-                text-align: center;
-            }}
-            th {{
-                background-color: #003366;
-                color: white;
-            }}
+            body {{ font-family: Arial, sans-serif; background: #f9f9f9; padding: 20px; }}
+            table {{ border-collapse: collapse; width: 100%; background: white; box-shadow: 0 0 10px rgba(0,0,0,0.1); }}
+            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: center; }}
+            th {{ background-color: #003366; color: white; }}
         </style>
     </head>
     <body>
+        <div id="oasys-student-name" style="display:none">{student_name}</div>
+        <div id="oasys-reg-number" style="display:none">{reg_number}</div>
         <h2>📊 Course-wise Attendance</h2>
         {str(table)}
     </body>

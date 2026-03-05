@@ -158,7 +158,7 @@ const LoginForm: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Field
             label="NET ID" type="text" value={netid} onChange={setNetid}
-            placeholder="e.g. RA2317777777777"
+            placeholder="e.g. xy6767"
             focused={focused} name="netid" onFocus={setFocused}
             autoComplete="username"
           />

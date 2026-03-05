@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Sun, Moon } from "lucide-react";
+import { applyTheme, initTheme } from "@/components/NavBar";
 
 const API = "";
 
@@ -10,18 +12,56 @@ const getOrCreateUserId = () => {
   return id;
 };
 
+/* ── Skeleton shimmer box ── */
+const SkeletonBox = ({ width, height }: { width: number | string; height: number }) => (
+  <>
+    <div style={{
+      width, height, borderRadius: 6,
+      background: 'var(--border-subtle)',
+      position: 'relative', overflow: 'hidden',
+      flexShrink: 0,
+    }}>
+      {/* Shimmer sweep */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(90deg, transparent 0%, var(--bg-glass-shimmer, rgba(255,255,255,0.12)) 50%, transparent 100%)',
+        animation: 'shimmer 1.6s ease-in-out infinite',
+      }}/>
+    </div>
+    <style>{`
+      @keyframes shimmer {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(200%); }
+      }
+    `}</style>
+  </>
+);
+
 const LoginForm: React.FC = () => {
   const navigate = useNavigate();
-  const [netid,    setNetid]    = useState("");
-  const [password, setPassword] = useState("");
-  const [captcha,  setCaptcha]  = useState("");
+  const [netid,     setNetid]     = useState("");
+  const [password,  setPassword]  = useState("");
+  const [captcha,   setCaptcha]   = useState("");
   const [captchaImg, setCaptchaImg] = useState("");
-  const [loading,  setLoading]  = useState(false);
+  const [loading,   setLoading]   = useState(false);
   const [captchaLoading, setCaptchaLoading] = useState(false);
-  const [error,    setError]    = useState<string | null>(null);
-  const [focused,  setFocused]  = useState<string | null>(null);
+  const [error,     setError]     = useState<string | null>(null);
+  const [focused,   setFocused]   = useState<string | null>(null);
+  const [isDark,    setIsDark]    = useState(false);
 
   const userId = React.useMemo(() => getOrCreateUserId(), []);
+
+  useEffect(() => {
+    const dark = initTheme();
+    setIsDark(dark);
+    fetchCaptcha();
+  }, []);
+
+  const toggleTheme = () => {
+    const next = !isDark;
+    setIsDark(next);
+    applyTheme(next);
+  };
 
   const fetchCaptcha = async () => {
     setCaptchaLoading(true); setError(null);
@@ -66,8 +106,6 @@ const LoginForm: React.FC = () => {
     finally   { setLoading(false); }
   };
 
-  useEffect(() => { fetchCaptcha(); }, []);
-
   return (
     <div style={{ width: '100%', maxWidth: 420 }}>
       <div style={{
@@ -76,10 +114,27 @@ const LoginForm: React.FC = () => {
         border: '1px solid var(--border-glass)', borderRadius: 24,
         padding: 'clamp(24px,5vw,36px)',
         boxShadow: 'var(--shadow-glass)',
+        position: 'relative',  /* for the toggle button */
       }}>
 
-        {/* Form header */}
-        <div style={{ marginBottom: 24 }}>
+        {/* ── Theme toggle — top RIGHT of card ── */}
+        <button
+          onClick={toggleTheme}
+          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{
+            position: 'absolute', top: 16, right: 16,
+            width: 36, height: 36, borderRadius: 10,
+            background: 'var(--bg-tile)',
+            border: '1px solid var(--border-card)',
+            color: 'var(--text-secondary)', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+          {isDark ? <Sun size={15}/> : <Moon size={15}/>}
+        </button>
+
+        {/* Form header — right-padded so it doesn't overlap toggle */}
+        <div style={{ marginBottom: 24, paddingRight: 48 }}>
           <h2 style={{
             fontFamily: 'var(--font-display)', fontWeight: 800,
             fontSize: 'clamp(20px,4vw,26px)', color: 'var(--text-primary)',
@@ -103,7 +158,7 @@ const LoginForm: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Field
             label="NET ID" type="text" value={netid} onChange={setNetid}
-            placeholder="e.g. RA2317777777777"   /* ← random same-length example */
+            placeholder="e.g. RA2317777777777"
             focused={focused} name="netid" onFocus={setFocused}
             autoComplete="username"
           />
@@ -114,7 +169,7 @@ const LoginForm: React.FC = () => {
             autoComplete="current-password"
           />
 
-          {/* Captcha */}
+          {/* Captcha row */}
           <div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-label)', letterSpacing: '0.14em', marginBottom: 8, fontWeight: 700 }}>CAPTCHA</div>
             <div style={{
@@ -122,18 +177,22 @@ const LoginForm: React.FC = () => {
               background: 'var(--bg-card)', border: '1px solid var(--border-card)',
               borderRadius: 12, padding: '10px 14px',
             }}>
+              {/* Skeleton while loading, image when ready */}
               {captchaLoading
-                ? <div style={{ height: 40, width: 100, background: 'var(--border-subtle)', borderRadius: 6 }}/>
+                ? <SkeletonBox width={110} height={40} />
                 : captchaImg
-                ? <img src={captchaImg} alt="Captcha" style={{ height: 40, borderRadius: 6, background: '#fff' }}/>
-                : <div style={{ height: 40, width: 100, background: 'var(--border-subtle)', borderRadius: 6 }}/>
+                ? <img src={captchaImg} alt="Captcha" style={{ height: 40, borderRadius: 6, background: '#fff', display: 'block' }}/>
+                : <SkeletonBox width={110} height={40} />
               }
-              <button type="button" onClick={refreshCaptcha} disabled={captchaLoading} style={{
-                marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 11,
-                color: 'var(--accent-blue)', background: 'none', border: 'none',
-                cursor: 'pointer', letterSpacing: '0.06em',
-                opacity: captchaLoading ? 0.5 : 1,
-              }}>CHANGE</button>
+              <button
+                type="button" onClick={refreshCaptcha} disabled={captchaLoading}
+                style={{
+                  marginLeft: 'auto', fontFamily: 'var(--font-mono)', fontSize: 11,
+                  color: 'var(--accent-blue)', background: 'none', border: 'none',
+                  cursor: captchaLoading ? 'not-allowed' : 'pointer',
+                  letterSpacing: '0.06em', opacity: captchaLoading ? 0.4 : 1,
+                  flexShrink: 0,
+                }}>CHANGE</button>
             </div>
           </div>
 
@@ -143,7 +202,6 @@ const LoginForm: React.FC = () => {
             focused={focused} name="captcha" onFocus={setFocused}
           />
 
-          {/* Submit */}
           <button
             type="button" onClick={handleSubmit} disabled={loading}
             style={{
@@ -162,7 +220,7 @@ const LoginForm: React.FC = () => {
   );
 };
 
-/* ─── Reusable field ─── */
+/* ─── Input field ─── */
 const Field = ({ label, type, value, onChange, placeholder, focused, name, onFocus, autoComplete }: {
   label: string; type: string; value: string;
   onChange: (v: string) => void; placeholder: string;

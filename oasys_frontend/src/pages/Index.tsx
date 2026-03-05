@@ -1,29 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import LoginForm from '@/components/LoginForm';
 import TermsDialog from '@/components/TermsDialog';
-import { Shield, Github, Sun, Moon } from 'lucide-react';
-import { applyTheme, initTheme } from '@/components/NavBar';
+import { Shield, Github } from 'lucide-react';
 
 const Index = () => {
   const [showTerms, setShowTerms] = useState(false);
-  const [vis,    setVis]    = useState(false);
-  const [isDark, setIsDark] = useState(false);
+  const [vis, setVis] = useState(false);
 
   useEffect(() => {
     document.body.classList.add('landing-page');
-    const dark = initTheme();
-    setIsDark(dark);
     const accepted = localStorage.getItem('oasys_terms_accepted');
     if (!accepted) setShowTerms(true);
     setTimeout(() => setVis(true), 80);
     return () => document.body.classList.remove('landing-page');
   }, []);
-
-  const toggleTheme = () => {
-    const next = !isDark;
-    setIsDark(next);
-    applyTheme(next);
-  };
 
   const handleAccept = (dontShowAgain: boolean) => {
     if (dontShowAgain) localStorage.setItem('oasys_terms_accepted', 'true');
@@ -53,23 +43,6 @@ const Index = () => {
         </div>
         <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E")`, opacity: 0.6 }}/>
 
-        {/* ── Theme toggle — top LEFT ── */}
-        <button
-          onClick={toggleTheme}
-          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          style={{
-            position: 'fixed', top: 16, left: 16, zIndex: 10,
-            width: 40, height: 40, borderRadius: 12,
-            background: 'var(--bg-glass)',
-            backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-            border: '1px solid var(--border-card)',
-            color: 'var(--text-secondary)', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: 'var(--shadow-sm)',
-          }}>
-          {isDark ? <Sun size={16}/> : <Moon size={16}/>}
-        </button>
-
         {/* Content */}
         <div style={{
           position: 'relative', zIndex: 1, width: '100%', maxWidth: 900,
@@ -77,20 +50,18 @@ const Index = () => {
           gap: 'clamp(24px,5vw,44px)',
         }}>
 
-          {/* Hero text */}
+          {/* Hero */}
           <div style={{
             textAlign: 'center',
             opacity: vis ? 1 : 0,
             transform: vis ? 'none' : 'translateY(-20px)',
             transition: 'opacity 0.7s ease, transform 0.7s ease',
           }}>
-            {/* No "SRM Ramapuram" label — removed */}
             <h1 style={{
               fontFamily: 'var(--font-display)', fontWeight: 800,
               fontSize: 'clamp(56px,12vw,100px)', letterSpacing: '-0.04em',
               lineHeight: 1, margin: 0, color: 'var(--text-primary)',
             }}>OASYS</h1>
-            {/* Shorter tagline */}
             <p style={{
               fontFamily: 'var(--font-display)', fontSize: 'clamp(13px,2vw,16px)',
               color: 'var(--text-tertiary)', marginTop: 12, lineHeight: 1.6,
@@ -99,7 +70,7 @@ const Index = () => {
             </p>
           </div>
 
-          {/* Login card */}
+          {/* Login card — theme toggle lives inside here */}
           <div style={{
             opacity: vis ? 1 : 0,
             transform: vis ? 'none' : 'translateY(24px)',

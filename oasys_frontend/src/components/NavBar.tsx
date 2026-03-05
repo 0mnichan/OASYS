@@ -12,10 +12,9 @@ export const applyTheme = (dark: boolean) => {
 };
 
 export const initTheme = (): boolean => {
-  const saved = localStorage.getItem('oasys_theme');
+  const saved       = localStorage.getItem('oasys_theme');
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const useDark = saved ? saved === 'dark' : prefersDark;
-  // Set without transition to avoid flash on load
+  const useDark     = saved ? saved === 'dark' : prefersDark;
   document.documentElement.setAttribute('data-no-transition', '');
   document.documentElement.classList.toggle('dark', useDark);
   requestAnimationFrame(() =>
@@ -27,19 +26,31 @@ export const initTheme = (): boolean => {
 };
 
 const SCROLL_THRESHOLD = 60;
+const MOBILE_BREAKPOINT = 768;
 
 const NavBar: React.FC<NavBarProps> = ({ courses = [] }) => {
-  const navigate = useNavigate();
+  const navigate  = useNavigate();
   const [showBunk, setShowBunk] = useState(false);
-  const [isDark, setIsDark] = useState(false);
+  const [isDark,   setIsDark]   = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     setIsDark(initTheme());
+
     const onScroll = () => setScrolled(window.scrollY > SCROLL_THRESHOLD);
-    window.addEventListener('scroll', onScroll, { passive: true });
+    const onResize = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+
+    // Init
     onScroll();
-    return () => window.removeEventListener('scroll', onScroll);
+    onResize();
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+    };
   }, []);
 
   const toggleTheme = useCallback(() => {
@@ -48,20 +59,67 @@ const NavBar: React.FC<NavBarProps> = ({ courses = [] }) => {
     applyTheme(next);
   }, [isDark]);
 
+  // ── MOBILE NAV ──────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <>
+        <header style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200,
+          height: 54,
+          background: 'var(--bg-glass)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderBottom: '1px solid var(--border-subtle)',
+          display: 'flex', alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 16px',
+        }}>
+          {/* Logo — always visible */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              fontFamily: 'var(--font-display)', fontWeight: 800,
+              fontSize: 18, letterSpacing: '-0.03em', color: 'var(--text-primary)',
+            }}>OASYS</span>
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '0.12em',
+              color: 'var(--accent-blue)',
+              background: 'color-mix(in srgb, var(--accent-blue) 12%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--accent-blue) 25%, transparent)',
+              padding: '2px 6px', borderRadius: 99,
+            }}>BETA</span>
+          </div>
+
+          {/* Icon-only buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {courses.length > 0 && (
+              <MobileBtn onClick={() => setShowBunk(true)} icon={<CalendarDays size={17}/>} label="Bunk Planner" color="var(--accent-blue)" />
+            )}
+            <MobileBtn onClick={toggleTheme} icon={isDark ? <Sun size={17}/> : <Moon size={17}/>} label="Toggle theme" />
+            <MobileBtn onClick={() => navigate('/')} icon={<LogOut size={17}/>} label="Logout" color="var(--accent-red)" />
+          </div>
+        </header>
+
+        <BunkPlanner open={showBunk} onOpenChange={setShowBunk} courses={courses} />
+      </>
+    );
+  }
+
+  // ── DESKTOP NAV ─────────────────────────────────────────────
   return (
     <>
-      {/* ── Top-left: OASYS BETA (fades out on scroll) ── */}
+      {/* Logo: fades out left on scroll */}
       <div style={{
-        position: 'fixed', top: 20, left: 'clamp(16px,4vw,32px)', zIndex: 200,
+        position: 'fixed', top: 20, left: 'clamp(24px,4vw,40px)', zIndex: 200,
         display: 'flex', alignItems: 'center', gap: 8,
-        opacity: scrolled ? 0 : 1,
-        transform: scrolled ? 'translateX(-24px)' : 'translateX(0)',
+        opacity:       scrolled ? 0 : 1,
+        transform:     scrolled ? 'translateX(-24px)' : 'translateX(0)',
         pointerEvents: scrolled ? 'none' : 'auto',
-        transition: 'opacity 0.45s ease, transform 0.45s ease',
+        transition: 'opacity 0.4s ease, transform 0.4s ease',
       }}>
-        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>
-          OASYS
-        </span>
+        <span style={{
+          fontFamily: 'var(--font-display)', fontWeight: 800,
+          fontSize: 20, letterSpacing: '-0.03em', color: 'var(--text-primary)',
+        }}>OASYS</span>
         <span style={{
           fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em',
           color: 'var(--accent-blue)',
@@ -71,75 +129,63 @@ const NavBar: React.FC<NavBarProps> = ({ courses = [] }) => {
         }}>BETA</span>
       </div>
 
-      {/* ── Left edge: vertical OASYS (fades in on scroll) ── */}
+      {/* Vertical OASYS: fades in on scroll, left edge mid-screen */}
       <div style={{
-        position: 'fixed',
-        top: '50%',
-        left: scrolled ? 14 : -32,
+        position: 'fixed', top: '50%', left: scrolled ? 14 : -28,
         transform: 'translateY(-50%)',
         zIndex: 200,
-        opacity: scrolled ? 1 : 0,
+        opacity:       scrolled ? 1 : 0,
         pointerEvents: 'none',
         transition: 'opacity 0.5s ease, left 0.5s ease',
       }}>
         <span style={{
-          fontFamily: 'var(--font-display)',
-          fontWeight: 800,
-          fontSize: 11,
-          letterSpacing: '0.28em',
+          fontFamily: 'var(--font-display)', fontWeight: 800,
+          fontSize: 10, letterSpacing: '0.3em',
           color: 'var(--text-muted)',
           writingMode: 'vertical-rl',
           textOrientation: 'mixed',
           transform: 'rotate(180deg)',
           display: 'block',
           userSelect: 'none',
-        }}>
-          OASYS
-        </span>
+          opacity: 0.45,
+        }}>OASYS</span>
       </div>
 
-      {/* ── Right: floating pill (always visible, morphs on scroll) ── */}
+      {/* Floating pill: right side, always visible, morphs on scroll */}
       <div style={{
-        position: 'fixed',
-        top: 16,
-        right: 'clamp(12px,3vw,24px)',
-        zIndex: 200,
-        display: 'flex',
-        alignItems: 'center',
-        gap: scrolled ? 0 : 4,
-        background: scrolled
-          ? 'var(--bg-glass)'
-          : 'transparent',
-        backdropFilter: scrolled ? 'blur(20px)' : 'none',
-        WebkitBackdropFilter: scrolled ? 'blur(20px)' : 'none',
-        border: scrolled ? '1px solid var(--border-glass)' : '1px solid transparent',
+        position: 'fixed', top: 14, right: 'clamp(20px,3vw,36px)', zIndex: 200,
+        display: 'flex', alignItems: 'center',
+        background: 'var(--bg-glass)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        border: '1px solid var(--border-glass)',
         borderRadius: 99,
-        padding: scrolled ? '4px 4px' : '0',
-        boxShadow: scrolled ? 'var(--shadow-md)' : 'none',
-        transition: 'background 0.45s ease, border-color 0.45s ease, box-shadow 0.45s ease, padding 0.45s ease, gap 0.45s ease, backdrop-filter 0.45s ease',
+        padding: '4px 6px',
+        boxShadow: 'var(--shadow-md)',
+        gap: scrolled ? 2 : 4,
+        transition: 'gap 0.4s ease',
       }}>
         {courses.length > 0 && (
-          <PillBtn
+          <DesktopPillBtn
             onClick={() => setShowBunk(true)}
-            icon={<CalendarDays size={15} />}
+            icon={<CalendarDays size={15}/>}
             label="Bunk Planner"
             color="var(--accent-blue)"
-            scrolled={scrolled}
+            collapsed={scrolled}
           />
         )}
-        <PillBtn
+        <DesktopPillBtn
           onClick={toggleTheme}
-          icon={isDark ? <Sun size={15} /> : <Moon size={15} />}
+          icon={isDark ? <Sun size={15}/> : <Moon size={15}/>}
           label={isDark ? 'Light' : 'Dark'}
-          scrolled={scrolled}
+          collapsed={scrolled}
         />
-        <PillBtn
+        <DesktopPillBtn
           onClick={() => navigate('/')}
-          icon={<LogOut size={15} />}
+          icon={<LogOut size={15}/>}
           label="Logout"
           color="var(--accent-red)"
-          scrolled={scrolled}
-          danger
+          collapsed={scrolled}
         />
       </div>
 
@@ -148,20 +194,46 @@ const NavBar: React.FC<NavBarProps> = ({ courses = [] }) => {
   );
 };
 
-/* ── Individual pill button ── */
-const PillBtn = ({
-  onClick, icon, label, color, scrolled, danger,
+/* ── Mobile icon button ── */
+const MobileBtn = ({
+  onClick, icon, label, color,
+}: { onClick: () => void; icon: React.ReactNode; label: string; color?: string }) => {
+  const [hov, setHov] = useState(false);
+  const fg = color ?? 'var(--text-secondary)';
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      aria-label={label}
+      title={label}
+      style={{
+        width: 38, height: 38,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        borderRadius: 10, border: 'none',
+        background: hov
+          ? `color-mix(in srgb, ${fg} 12%, transparent)`
+          : 'transparent',
+        color: hov ? fg : 'var(--text-tertiary)',
+        cursor: 'pointer',
+        flexShrink: 0,
+        transition: 'background 0.15s ease, color 0.15s ease',
+      }}
+    >
+      {icon}
+    </button>
+  );
+};
+
+/* ── Desktop pill button (with collapsing label) ── */
+const DesktopPillBtn = ({
+  onClick, icon, label, color, collapsed,
 }: {
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  color?: string;
-  scrolled: boolean;
-  danger?: boolean;
+  onClick: () => void; icon: React.ReactNode; label: string;
+  color?: string; collapsed: boolean;
 }) => {
   const [hov, setHov] = useState(false);
   const fg = color ?? 'var(--text-secondary)';
-
   return (
     <button
       onClick={onClick}
@@ -170,35 +242,31 @@ const PillBtn = ({
       title={label}
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        gap: 6,
-        width: scrolled ? 36 : 'auto',
-        height: scrolled ? 36 : 'auto',
-        padding: scrolled ? '0' : '6px 12px',
-        borderRadius: 99,
-        border: 'none',
+        gap: collapsed ? 0 : 6,
+        height: 34,
+        padding: collapsed ? '0 10px' : '0 12px',
+        borderRadius: 99, border: 'none',
         background: hov
-          ? (scrolled
-            ? 'color-mix(in srgb, ' + fg + ' 14%, transparent)'
-            : 'var(--bg-glass)')
+          ? `color-mix(in srgb, ${fg} 14%, transparent)`
           : 'transparent',
-        backdropFilter: (!scrolled && hov) ? 'blur(12px)' : 'none',
-        WebkitBackdropFilter: (!scrolled && hov) ? 'blur(12px)' : 'none',
-        color: hov ? fg : (scrolled ? 'var(--text-tertiary)' : 'var(--text-tertiary)'),
+        color: hov ? fg : 'var(--text-tertiary)',
         cursor: 'pointer',
         flexShrink: 0,
-        transition: 'background 0.2s ease, color 0.2s ease, width 0.45s ease, height 0.45s ease, padding 0.45s ease',
+        transition: 'background 0.15s ease, color 0.15s ease, padding 0.4s ease, gap 0.4s ease',
       }}
     >
       {icon}
-      {/* Label only shown when not scrolled */}
+      {/* Label slides out on scroll */}
       <span style={{
         fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 600,
-        maxWidth: scrolled ? 0 : 80,
+        maxWidth: collapsed ? 0 : 100,
         overflow: 'hidden',
-        opacity: scrolled ? 0 : 1,
-        transition: 'max-width 0.35s ease, opacity 0.3s ease',
+        opacity: collapsed ? 0 : 1,
         whiteSpace: 'nowrap',
-      }}>{label}</span>
+        transition: 'max-width 0.4s ease, opacity 0.3s ease',
+      }}>
+        {label}
+      </span>
     </button>
   );
 };

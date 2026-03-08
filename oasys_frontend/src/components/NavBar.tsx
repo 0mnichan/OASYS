@@ -148,7 +148,7 @@ const NavBar: React.FC<NavBarProps> = ({ courses = [] }) => {
           display: 'block',
           userSelect: 'none',
           opacity: 0.45,
-        }}>OASYS</span>
+        }}> </span>
       </div>
 
       {/* Floating pill: right side, always visible, morphs on scroll */}

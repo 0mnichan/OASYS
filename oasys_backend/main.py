@@ -1,11 +1,12 @@
-from fastapi import FastAPI, Form, Response
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from base64 import b64encode
-from bs4 import BeautifulSoup
+from fastapi import FastAPI, Form, Response # type: ignore
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse # type: ignore
+from fastapi.staticfiles import StaticFiles # type: ignore
+from bs4 import BeautifulSoup # type: ignore
+import re
 import math
 import os
 import asyncio
+import httpx # type: ignore
 from sessions import create_session, get_session, cleanup_sessions
 from utils import parse_hidden_fields
 
@@ -15,11 +16,45 @@ frontend_path = os.path.join(os.path.dirname(__file__), "../oasys_frontend/dist"
 
 app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
 
-SRM_BASE_URL = "https://sp.srmist.edu.in/srmiststudentportal"
-SRM_LOGIN_URL = f"{SRM_BASE_URL}/students/loginManager/youLogin.jsp"
-SRM_CAPTCHA_URL = f"{SRM_BASE_URL}/captchas"
+SRM_BASE_URL       = "https://sp.srmist.edu.in/srmiststudentportal"
+SRM_LOGIN_URL      = f"{SRM_BASE_URL}/students/loginManager/youLogin.jsp"
 SRM_ATTENDANCE_URL = f"{SRM_BASE_URL}/students/report/studentAttendanceDetails.jsp"
-SRM_HOME_URL = f"{SRM_BASE_URL}/students/loginManager/UserHomePage.jsp"
+SRM_HOME_URL       = f"{SRM_BASE_URL}/students/loginManager/UserHomePage.jsp"
+
+CAPTCHA_BROWSER_HEADERS = {
+    "X-Requested-With": "XMLHttpRequest",
+    "Referer": SRM_LOGIN_URL,
+    "Accept": "text/plain, */*; q=0.01",
+    "Accept-Language": "en-US,en;q=0.9",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+}
+
+
+def extract_captcha_url(login_page_html: str) -> str | None:
+    match = re.search(r'const CAPTCHA_URL\s*=\s*["\']([^"\']+)["\']', login_page_html)
+    if match:
+        return f"https://sp.srmist.edu.in{match.group(1)}"
+    return None
+
+
+async def fetch_captcha_with_retry(session, login_page_html: str, retries: int = 4, delay: float = 1.0) -> str:
+    captcha_url = extract_captcha_url(login_page_html)
+    if not captcha_url:
+        raise ValueError("Could not find CAPTCHA_URL in login page HTML")
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            res = await session.client.get(captcha_url, timeout=10.0, headers=CAPTCHA_BROWSER_HEADERS)
+            res.raise_for_status()
+            return res.text.strip()
+        except (httpx.ReadError, httpx.ConnectError, httpx.TimeoutException) as e:
+            last_exc = e
+            if attempt < retries - 1:
+                await asyncio.sleep(delay * (attempt + 1))
+            continue
+        except Exception as e:
+            raise e
+    raise last_exc
 
 
 @app.api_route("/stat", methods=["GET", "HEAD"])
@@ -29,7 +64,6 @@ async def stat():
 @app.api_route("/ping", methods=["GET", "HEAD"])
 async def ping():
     return Response(content="pong", media_type="text/plain")
-
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
@@ -46,9 +80,13 @@ async def serve_spa(full_path: str):
 @app.post("/start_login/")
 async def start_login(user_id: str = Form(...)):
     session = await create_session(user_id)
-    _ = await session.client.get(SRM_LOGIN_URL)
-    captcha_res = await session.client.get(SRM_CAPTCHA_URL)
-    session.captcha_image = b64encode(captcha_res.content).decode()
+    login_page = await session.client.get(SRM_LOGIN_URL)
+    session.login_page_html = login_page.text
+    try:
+        session.captcha_image = await fetch_captcha_with_retry(session, login_page.text)
+    except Exception as e:
+        print(f"Captcha fetch failed: {e}")
+        return JSONResponse({"error": "Could not load captcha from SRM. Try again."}, status_code=503)
     return JSONResponse({"captcha_image": session.captcha_image})
 
 
@@ -57,8 +95,13 @@ async def refresh_captcha(user_id: str = Form(...)):
     session = get_session(user_id)
     if not session:
         return JSONResponse({"error": "Session invalid"}, status_code=400)
-    captcha_res = await session.client.get(SRM_CAPTCHA_URL)
-    session.captcha_image = b64encode(captcha_res.content).decode()
+    login_page = await session.client.get(SRM_LOGIN_URL)
+    session.login_page_html = login_page.text
+    try:
+        session.captcha_image = await fetch_captcha_with_retry(session, login_page.text)
+    except Exception as e:
+        print(f"Captcha refresh failed: {e}")
+        return JSONResponse({"error": "Could not refresh captcha. Try again."}, status_code=503)
     return JSONResponse({"captcha_image": session.captcha_image})
 
 
@@ -94,8 +137,6 @@ async def submit_login(
     if login_res.status_code >= 400:
         return HTMLResponse("<h3>Login failed</h3>", status_code=401)
 
-    # Fetch home page to get student name and reg number
-    # From the HTML: first sidenav-footer-subtitle = reg number, second = name
     student_name = ""
     reg_number = ""
     try:
@@ -107,7 +148,7 @@ async def submit_login(
         if len(subtitles) >= 2:
             student_name = subtitles[1].get_text(strip=True)
     except Exception:
-        pass  # frontend falls back to netid
+        pass
 
     attendance_payload = {
         "iden": "9",

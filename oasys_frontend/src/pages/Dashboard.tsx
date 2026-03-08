@@ -181,7 +181,6 @@ const HeroPanel = ({ data, heroVis, coursesAbove, coursesBelow, totalSkippable }
         transform: heroVis ? 'none' : 'translateY(20px) scale(0.98)',
         transition: 'opacity 0.7s ease, transform 0.7s ease',
       }}>
-        {/* Ring + overall — horizontal row on mobile */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
           <Ring pct={data.overallPercentage} size={90} />
           <div>
@@ -199,11 +198,7 @@ const HeroPanel = ({ data, heroVis, coursesAbove, coursesBelow, totalSkippable }
             </div>
           </div>
         </div>
-
-        {/* Horizontal divider */}
         <div style={{ height: 1, background: 'linear-gradient(90deg, transparent, var(--border-glass), transparent)', marginBottom: 16 }} />
-
-        {/* 2x2 grid of stat tiles */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <StatTile label="Enrolled"     value={data.courses.length} color="var(--accent-blue)"   sub="subjects"  delay={320} />
           <StatTile label="Can Skip"     value={coursesAbove}        color="var(--accent-green)"  sub="subjects"  delay={400} />
@@ -214,7 +209,6 @@ const HeroPanel = ({ data, heroVis, coursesAbove, coursesBelow, totalSkippable }
     );
   }
 
-  // Desktop: single horizontal row
   return (
     <div style={{
       background: 'var(--bg-glass)',
@@ -228,7 +222,6 @@ const HeroPanel = ({ data, heroVis, coursesAbove, coursesBelow, totalSkippable }
       transition: 'opacity 0.7s ease, transform 0.7s ease',
     }}>
       <div style={{ display: 'flex', alignItems: 'stretch', gap: 'clamp(16px,3vw,28px)' }}>
-        {/* LEFT: Ring + numbers */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(12px,2vw,20px)', flexShrink: 0 }}>
           <Ring pct={data.overallPercentage} size={110} />
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
@@ -246,15 +239,11 @@ const HeroPanel = ({ data, heroVis, coursesAbove, coursesBelow, totalSkippable }
             </div>
           </div>
         </div>
-
-        {/* Vertical divider */}
         <div style={{
           width: 1, alignSelf: 'stretch', minHeight: 80,
           background: 'linear-gradient(180deg, transparent, var(--border-glass), transparent)',
           flexShrink: 0,
         }} />
-
-        {/* RIGHT: 4 stat tiles */}
         <div style={{ display: 'flex', gap: 'clamp(8px,1.5vw,12px)', flex: 1, minWidth: 0, alignItems: 'stretch' }}>
           <StatTile label="Enrolled"     value={data.courses.length} color="var(--accent-blue)"   sub="subjects"  delay={320} />
           <StatTile label="Can Skip"     value={coursesAbove}        color="var(--accent-green)"  sub="subjects"  delay={400} />
@@ -282,6 +271,17 @@ const Dashboard = () => {
       setTimeout(() => setHeroVis(true), 260);
     }
   }, [data]);
+
+  const openDetail = useCallback((course: Course) => {
+    setSelectedCourse(course);
+    setShowDetail(true);
+    window.dispatchEvent(new Event('oasys:dialog:open'));
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    setShowDetail(false);
+    window.dispatchEvent(new Event('oasys:dialog:close'));
+  }, []);
 
   if (isLoading) return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)' }}>
@@ -321,10 +321,9 @@ const Dashboard = () => {
         opacity: 0.6,
       }} />
 
+      {/* Ghost OASYS watermark */}
       <div style={{
-        position: 'fixed',
-        left: -140,
-        top: '50vh',
+        position: 'fixed', left: -140, top: '50vh',
         transform: 'translateY(-50%) rotate(-90deg)',
         zIndex: 0, pointerEvents: 'none',
         fontFamily: 'var(--font-display)', fontWeight: 700,
@@ -334,7 +333,7 @@ const Dashboard = () => {
       }}>OASYS</div>
 
       <NavBar courses={data.courses} />
-      <CourseDetailDialog course={selectedCourse} open={showDetail} onClose={() => setShowDetail(false)} />
+      <CourseDetailDialog course={selectedCourse} open={showDetail} onClose={closeDetail} />
 
       <main style={{ position: 'relative', zIndex: 1, maxWidth: 1320, margin: '0 auto', padding: `clamp(80px,10vw,100px) ${pad} 0` }}>
 
@@ -363,7 +362,7 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* ── HERO PANEL (responsive) ── */}
+        {/* ── HERO PANEL ── */}
         <HeroPanel
           data={data} heroVis={heroVis}
           coursesAbove={coursesAbove} coursesBelow={coursesBelow} totalSkippable={totalSkippable}
@@ -371,14 +370,14 @@ const Dashboard = () => {
 
         {/* ── DISCLAIMER ── */}
         <div style={{
-          fontFamily: 'var(--font-mono)', fontSize: 16, color: 'var(--text-muted)',
+          fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)',
           letterSpacing: '0.04em', lineHeight: 1.7,
           padding: '8px 4px', marginBottom: 'clamp(24px,4vw,40px)',
           opacity: heroVis ? 1 : 0, transition: 'opacity 0.7s 0.3s ease',
         }}>
           ⓘ &nbsp;Skip counts are calculated based on{' '}
           <span style={{ color: 'var(--text-tertiary)' }}>classes conducted so far</span>
-          {' '}- not the full semester total. Numbers reflect what you can skip{' '}
+          {' '}— not the full semester total. Numbers reflect what you can skip{' '}
           <span style={{ color: 'var(--text-tertiary)' }}>right now</span>{' '}
           while staying above 75%.
         </div>
@@ -394,8 +393,7 @@ const Dashboard = () => {
         {/* ── COURSE GRID ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 270px), 1fr))', gap: 'clamp(10px,2vw,16px)' }}>
           {data.courses.map((course, i) => (
-            <CourseCard key={course.id} course={course} index={i}
-              onClick={() => { setSelectedCourse(course); setShowDetail(true); }} />
+            <CourseCard key={course.id} course={course} index={i} onClick={() => openDetail(course)} />
           ))}
         </div>
       </main>

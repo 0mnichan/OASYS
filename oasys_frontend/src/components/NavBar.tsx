@@ -30,26 +30,33 @@ const MOBILE_BREAKPOINT = 768;
 
 const NavBar: React.FC<NavBarProps> = ({ courses = [] }) => {
   const navigate  = useNavigate();
-  const [showBunk, setShowBunk] = useState(false);
-  const [isDark,   setIsDark]   = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [showBunk,    setShowBunk]    = useState(false);
+  const [isDark,      setIsDark]      = useState(false);
+  const [scrolled,    setScrolled]    = useState(false);
+  const [isMobile,    setIsMobile]    = useState(false);
+  const [dialogOpen,  setDialogOpen]  = useState(false);
 
   useEffect(() => {
     setIsDark(initTheme());
 
     const onScroll = () => setScrolled(window.scrollY > SCROLL_THRESHOLD);
     const onResize = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    const onDialogOpen  = () => setDialogOpen(true);
+    const onDialogClose = () => setDialogOpen(false);
 
-    // Init
     onScroll();
     onResize();
 
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onResize, { passive: true });
+    window.addEventListener('scroll',              onScroll,      { passive: true });
+    window.addEventListener('resize',              onResize,      { passive: true });
+    window.addEventListener('oasys:dialog:open',   onDialogOpen);
+    window.addEventListener('oasys:dialog:close',  onDialogClose);
+
     return () => {
-      window.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll',             onScroll);
+      window.removeEventListener('resize',             onResize);
+      window.removeEventListener('oasys:dialog:open',  onDialogOpen);
+      window.removeEventListener('oasys:dialog:close', onDialogClose);
     };
   }, []);
 
@@ -67,14 +74,15 @@ const NavBar: React.FC<NavBarProps> = ({ courses = [] }) => {
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 200,
           height: 54,
           background: 'var(--bg-glass)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
           borderBottom: '1px solid var(--border-subtle)',
           display: 'flex', alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 16px',
+          transform: dialogOpen ? 'translateY(-100%)' : 'translateY(0)',
+          transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)',
         }}>
-          {/* Logo — always visible */}
+          {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{
               fontFamily: 'var(--font-display)', fontWeight: 800,
@@ -129,7 +137,7 @@ const NavBar: React.FC<NavBarProps> = ({ courses = [] }) => {
         }}>BETA</span>
       </div>
 
-      {/* Vertical OASYS: fades in on scroll, left edge mid-screen */}
+      {/* Vertical OASYS: fades in on scroll */}
       <div style={{
         position: 'fixed', top: '50%', left: scrolled ? 14 : -28,
         transform: 'translateY(-50%)',
@@ -151,42 +159,23 @@ const NavBar: React.FC<NavBarProps> = ({ courses = [] }) => {
         }}> </span>
       </div>
 
-      {/* Floating pill: right side, always visible, morphs on scroll */}
+      {/* Floating pill */}
       <div style={{
         position: 'fixed', top: 14, right: 'clamp(20px,3vw,36px)', zIndex: 200,
         display: 'flex', alignItems: 'center',
         background: 'var(--bg-glass)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
+        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
         border: '1px solid var(--border-glass)',
-        borderRadius: 99,
-        padding: '4px 6px',
+        borderRadius: 99, padding: '4px 6px',
         boxShadow: 'var(--shadow-md)',
         gap: scrolled ? 2 : 4,
         transition: 'gap 0.4s ease',
       }}>
         {courses.length > 0 && (
-          <DesktopPillBtn
-            onClick={() => setShowBunk(true)}
-            icon={<CalendarDays size={15}/>}
-            label="Bunk Planner"
-            color="var(--accent-blue)"
-            collapsed={scrolled}
-          />
+          <DesktopPillBtn onClick={() => setShowBunk(true)} icon={<CalendarDays size={15}/>} label="Bunk Planner" color="var(--accent-blue)" collapsed={scrolled} />
         )}
-        <DesktopPillBtn
-          onClick={toggleTheme}
-          icon={isDark ? <Sun size={15}/> : <Moon size={15}/>}
-          label={isDark ? 'Light' : 'Dark'}
-          collapsed={scrolled}
-        />
-        <DesktopPillBtn
-          onClick={() => navigate('/')}
-          icon={<LogOut size={15}/>}
-          label="Logout"
-          color="var(--accent-red)"
-          collapsed={scrolled}
-        />
+        <DesktopPillBtn onClick={toggleTheme} icon={isDark ? <Sun size={15}/> : <Moon size={15}/>} label={isDark ? 'Light' : 'Dark'} collapsed={scrolled} />
+        <DesktopPillBtn onClick={() => navigate('/')} icon={<LogOut size={15}/>} label="Logout" color="var(--accent-red)" collapsed={scrolled} />
       </div>
 
       <BunkPlanner open={showBunk} onOpenChange={setShowBunk} courses={courses} />
@@ -195,74 +184,51 @@ const NavBar: React.FC<NavBarProps> = ({ courses = [] }) => {
 };
 
 /* ── Mobile icon button ── */
-const MobileBtn = ({
-  onClick, icon, label, color,
-}: { onClick: () => void; icon: React.ReactNode; label: string; color?: string }) => {
+const MobileBtn = ({ onClick, icon, label, color }: {
+  onClick: () => void; icon: React.ReactNode; label: string; color?: string;
+}) => {
   const [hov, setHov] = useState(false);
   const fg = color ?? 'var(--text-secondary)';
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      aria-label={label}
-      title={label}
+    <button onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+      aria-label={label} title={label}
       style={{
-        width: 38, height: 38,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center',
         borderRadius: 10, border: 'none',
-        background: hov
-          ? `color-mix(in srgb, ${fg} 12%, transparent)`
-          : 'transparent',
+        background: hov ? `color-mix(in srgb, ${fg} 12%, transparent)` : 'transparent',
         color: hov ? fg : 'var(--text-tertiary)',
-        cursor: 'pointer',
-        flexShrink: 0,
+        cursor: 'pointer', flexShrink: 0,
         transition: 'background 0.15s ease, color 0.15s ease',
-      }}
-    >
+      }}>
       {icon}
     </button>
   );
 };
 
-/* ── Desktop pill button (with collapsing label) ── */
-const DesktopPillBtn = ({
-  onClick, icon, label, color, collapsed,
-}: {
-  onClick: () => void; icon: React.ReactNode; label: string;
-  color?: string; collapsed: boolean;
+/* ── Desktop pill button ── */
+const DesktopPillBtn = ({ onClick, icon, label, color, collapsed }: {
+  onClick: () => void; icon: React.ReactNode; label: string; color?: string; collapsed: boolean;
 }) => {
   const [hov, setHov] = useState(false);
   const fg = color ?? 'var(--text-secondary)';
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
+    <button onClick={onClick} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
       title={label}
       style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        gap: collapsed ? 0 : 6,
-        height: 34,
+        gap: collapsed ? 0 : 6, height: 34,
         padding: collapsed ? '0 10px' : '0 12px',
         borderRadius: 99, border: 'none',
-        background: hov
-          ? `color-mix(in srgb, ${fg} 14%, transparent)`
-          : 'transparent',
+        background: hov ? `color-mix(in srgb, ${fg} 14%, transparent)` : 'transparent',
         color: hov ? fg : 'var(--text-tertiary)',
-        cursor: 'pointer',
-        flexShrink: 0,
+        cursor: 'pointer', flexShrink: 0,
         transition: 'background 0.15s ease, color 0.15s ease, padding 0.4s ease, gap 0.4s ease',
-      }}
-    >
+      }}>
       {icon}
-      {/* Label slides out on scroll */}
       <span style={{
         fontFamily: 'var(--font-display)', fontSize: 13, fontWeight: 600,
-        maxWidth: collapsed ? 0 : 100,
-        overflow: 'hidden',
-        opacity: collapsed ? 0 : 1,
-        whiteSpace: 'nowrap',
+        maxWidth: collapsed ? 0 : 100, overflow: 'hidden',
+        opacity: collapsed ? 0 : 1, whiteSpace: 'nowrap',
         transition: 'max-width 0.4s ease, opacity 0.3s ease',
       }}>
         {label}

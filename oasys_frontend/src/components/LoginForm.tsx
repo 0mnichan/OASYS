@@ -26,37 +26,14 @@ const getOrCreateUserId = () => {
 const FONT = "'Google Sans', sans-serif";
 const FONT_MONO = "'Google Sans Mono', monospace";
 
-/* ── Skeleton shimmer box ── */
-const SkeletonBox = ({ width, height }: { width: number | string; height: number }) => (
-  <>
-    <div style={{
-      width, height, borderRadius: 6,
-      background: 'var(--border-subtle)',
-      position: 'relative', overflow: 'hidden', flexShrink: 0,
-    }}>
-      <div style={{
-        position: 'absolute', inset: 0,
-        background: 'linear-gradient(90deg, transparent 0%, var(--bg-glass-shimmer, rgba(255,255,255,0.12)) 50%, transparent 100%)',
-        animation: 'shimmer 1.6s ease-in-out infinite',
-      }}/>
-    </div>
-    <style>{`
-      @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(200%); } }
-      @keyframes spinIn  { from { transform: rotate(-90deg) scale(0.5); opacity: 0; } to { transform: rotate(0deg) scale(1); opacity: 1; } }
-    `}</style>
-  </>
-);
-
 /* ── Animated theme icon ── */
 const ThemeIcon = ({ isDark }: { isDark: boolean }) => {
   const isFirst = useRef(true);
   const [animKey, setAnimKey] = useState(0);
-
   useEffect(() => {
     if (isFirst.current) { isFirst.current = false; return; }
     setAnimKey(k => k + 1);
   }, [isDark]);
-
   return (
     <span key={animKey} style={{
       display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -69,22 +46,19 @@ const ThemeIcon = ({ isDark }: { isDark: boolean }) => {
 
 const LoginForm: React.FC = () => {
   const navigate = useNavigate();
-  const [netid,          setNetid]          = useState("");
-  const [password,       setPassword]       = useState("");
-  const [captcha,        setCaptcha]        = useState("");
-  const [captchaImg,     setCaptchaImg]     = useState("");
-  const [captchaSolved,  setCaptchaSolved]  = useState<boolean | null>(null);
-  const [loading,        setLoading]        = useState(false);
-  const [captchaLoading, setCaptchaLoading] = useState(false);
-  const [error,          setError]          = useState<string | null>(null);
-  const [focused,        setFocused]        = useState<string | null>(null);
-  const [isDark,         setIsDark]         = useState(false);
+  const [netid,          setNetid]       = useState("");
+  const [password,       setPassword]    = useState("");
+  const [captcha,        setCaptcha]     = useState("");
+  const [captchaAuto,    setCaptchaAuto] = useState<boolean | null>(null); // null=loading, true=autofilled, false=not
+  const [loading,        setLoading]     = useState(false);
+  const [error,          setError]       = useState<string | null>(null);
+  const [focused,        setFocused]     = useState<string | null>(null);
+  const [isDark,         setIsDark]      = useState(false);
 
   const userId = React.useMemo(() => getOrCreateUserId(), []);
 
   useEffect(() => {
-    const dark = initTheme();
-    setIsDark(dark);
+    setIsDark(initTheme());
     fetchCaptcha();
   }, []);
 
@@ -95,27 +69,21 @@ const LoginForm: React.FC = () => {
   };
 
   const fetchCaptcha = async () => {
-    setCaptchaLoading(true); setError(null); setCaptchaSolved(null); setCaptcha("");
+    setCaptchaAuto(null); setCaptcha(""); setError(null);
     try {
       const res = await fetch(`${API}/start_login/`, { method: "POST", body: new URLSearchParams({ user_id: userId }) });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setCaptchaImg(`data:image/png;base64,${data.captcha_image}`);
-      setCaptchaSolved(false);
-    } catch { setError("Could not load captcha. Try again."); setCaptchaSolved(false); }
-    finally { setCaptchaLoading(false); }
-  };
-
-  const refreshCaptcha = async () => {
-    setCaptchaLoading(true); setError(null); setCaptchaSolved(null); setCaptcha("");
-    try {
-      const res = await fetch(`${API}/refresh_captcha/`, { method: "POST", body: new URLSearchParams({ user_id: userId }) });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setCaptchaImg(`data:image/png;base64,${data.captcha_image}`);
-      setCaptchaSolved(false);
-    } catch { setError("Could not refresh captcha."); setCaptchaSolved(false); }
-    finally { setCaptchaLoading(false); }
+      if (data.captcha_solved) {
+        setCaptcha(data.captcha_solved);
+        setCaptchaAuto(true);
+      } else {
+        setCaptchaAuto(false);
+      }
+    } catch {
+      setError("Could not load captcha. Try again.");
+      setCaptchaAuto(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -139,6 +107,9 @@ const LoginForm: React.FC = () => {
 
   return (
     <div style={{ width: '100%', maxWidth: 420, fontFamily: FONT }}>
+      <style>{`
+        @keyframes spinIn { from { transform: rotate(-90deg) scale(0.5); opacity: 0; } to { transform: rotate(0deg) scale(1); opacity: 1; } }
+      `}</style>
       <div style={{
         background: 'var(--bg-glass)',
         backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
@@ -149,9 +120,7 @@ const LoginForm: React.FC = () => {
       }}>
 
         {/* ── Theme toggle ── */}
-        <button
-          onClick={toggleTheme}
-          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        <button onClick={toggleTheme} title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           style={{
             position: 'absolute', top: 16, right: 16,
             width: 36, height: 36, borderRadius: 10,
@@ -164,11 +133,9 @@ const LoginForm: React.FC = () => {
         </button>
 
         <div style={{ marginBottom: 24, paddingRight: 48 }}>
-          <h2 style={{
-            fontFamily: FONT, fontWeight: 700,
-            fontSize: 'clamp(20px,4vw,26px)', color: 'var(--text-primary)',
-            margin: 0, letterSpacing: '-0.01em',
-          }}>Sign In</h2>
+          <h2 style={{ fontFamily: FONT, fontWeight: 700, fontSize: 'clamp(20px,4vw,26px)', color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em' }}>
+            Sign In
+          </h2>
           <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
             SRM Student Portal
           </p>
@@ -189,52 +156,42 @@ const LoginForm: React.FC = () => {
           <Field label="PASSWORD" type="password" value={password} onChange={setPassword}
             placeholder="Your portal password" focused={focused} name="password" onFocus={setFocused} autoComplete="current-password" />
 
-          {/* ── Captcha section ── */}
-          <div>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: 'var(--text-label)', letterSpacing: '0.14em', marginBottom: 8, fontWeight: 700 }}>CAPTCHA (please change if captcha seems cut)</div>
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', borderRadius: 12, padding: '10px 14px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                {captchaLoading
-                  ? <SkeletonBox width={110} height={40} />
-                  : captchaImg
-                  ? <img
-                      src={captchaImg} alt="Captcha"
-                      style={{ height: 48, width: 'auto', maxWidth: 'calc(100% - 80px)', objectFit: 'contain', borderRadius: 6, background: '#fff', display: 'block', flexShrink: 1 }}
-                    />
-                  : <SkeletonBox width={110} height={40} />
-                }
-                <button type="button" onClick={refreshCaptcha} disabled={captchaLoading}
-                  style={{
-                    marginLeft: 'auto', fontFamily: FONT_MONO, fontSize: 11,
-                    color: 'var(--accent-blue)', background: 'none', border: 'none',
-                    cursor: captchaLoading ? 'not-allowed' : 'pointer',
-                    letterSpacing: '0.06em', opacity: captchaLoading ? 0.4 : 1,
-                    flexShrink: 0, whiteSpace: 'nowrap',
-                  }}>CHANGE</button>
-              </div>
-              {captchaLoading && (
-                <div style={{ marginTop: 7, fontFamily: FONT_MONO, fontSize: 10, letterSpacing: '0.06em', color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ display: 'inline-block', animation: 'spinIn 1s linear infinite', lineHeight: 1 }}>⟳</span>
-                  &nbsp;Loading captcha...
-                </div>
-              )}
-            </div>
+          {/* ── Captcha status — no buttons, no image ── */}
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border-card)',
+            borderRadius: 12, padding: '10px 14px',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            {captchaAuto === null ? (
+              <>
+                <span style={{ display: 'inline-block', animation: 'spinIn 1s linear infinite', lineHeight: 1, color: 'var(--text-tertiary)', fontSize: 13 }}>⟳</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: 'var(--text-tertiary)', letterSpacing: '0.06em' }}>Loading captcha...</span>
+              </>
+            ) : captchaAuto === true ? (
+              <>
+                <span style={{ color: 'var(--accent-green)', fontSize: 13 }}>✓</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: 'var(--accent-green)', letterSpacing: '0.06em' }}>Captcha autofilled!</span>
+              </>
+            ) : (
+              <>
+                <span style={{ color: 'var(--accent-amber)', fontSize: 13 }}>⚠</span>
+                <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: 'var(--accent-amber)', letterSpacing: '0.06em' }}>Captcha not autofilled — please try later</span>
+              </>
+            )}
           </div>
 
-          <Field label="ENTER CAPTCHA" type="text" value={captcha} onChange={setCaptcha}
-            placeholder="Type the code above" focused={focused} name="captcha" onFocus={setFocused} />
-
-          <button type="button" onClick={handleSubmit} disabled={loading}
+          <button type="button" onClick={handleSubmit} disabled={loading || captchaAuto !== true}
             style={{
               marginTop: 4, padding: '13px', borderRadius: 12, border: 'none',
-              background: loading ? 'var(--border-card)' : 'var(--accent-blue)',
+              background: (loading || captchaAuto !== true) ? 'var(--border-card)' : 'var(--accent-blue)',
               color: '#fff', fontFamily: FONT, fontWeight: 700, fontSize: 15,
-              cursor: loading ? 'not-allowed' : 'pointer',
+              cursor: (loading || captchaAuto !== true) ? 'not-allowed' : 'pointer',
               boxSizing: 'border-box', width: '100%',
-              boxShadow: loading ? 'none' : '0 4px 20px color-mix(in srgb, var(--accent-blue) 38%, transparent)',
-              opacity: loading ? 0.7 : 1,
+              boxShadow: (loading || captchaAuto !== true) ? 'none' : '0 4px 20px color-mix(in srgb, var(--accent-blue) 38%, transparent)',
+              opacity: (loading || captchaAuto !== true) ? 0.5 : 1,
+              transition: 'background 0.2s, opacity 0.2s',
             }}>
-            {loading ? 'Signing in...' : 'Sign In →'}
+            {loading ? 'Signing in...' : captchaAuto === null ? 'Loading...' : captchaAuto === false ? 'Captcha unavailable' : 'Sign In →'}
           </button>
         </div>
       </div>
@@ -248,11 +205,9 @@ const Field = ({ label, type, value, onChange, placeholder, focused, name, onFoc
   onFocus: (n: string | null) => void; autoComplete?: string;
 }) => {
   const active = focused === name;
-  const FONT = "'Google Sans', sans-serif";
-  const FONT_MONO = "'Google Sans Mono', monospace";
   return (
     <div>
-      <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: 'var(--text-label)', letterSpacing: '0.14em', marginBottom: 7, fontWeight: 700 }}>{label}</div>
+      <div style={{ fontFamily: "'Google Sans Mono', monospace", fontSize: 10, color: 'var(--text-label)', letterSpacing: '0.14em', marginBottom: 7, fontWeight: 700 }}>{label}</div>
       <input type={type} value={value} placeholder={placeholder} autoComplete={autoComplete}
         onChange={e => onChange(e.target.value)}
         onFocus={() => onFocus(name)} onBlur={() => onFocus(null)}
@@ -260,7 +215,7 @@ const Field = ({ label, type, value, onChange, placeholder, focused, name, onFoc
           width: '100%', padding: '11px 14px', borderRadius: 12,
           border: `1px solid ${active ? 'var(--accent-blue)' : 'var(--border-card)'}`,
           background: 'var(--bg-card)', color: 'var(--text-primary)',
-          fontFamily: FONT, fontWeight: 500, fontSize: 14,
+          fontFamily: "'Google Sans', sans-serif", fontWeight: 500, fontSize: 14,
           outline: 'none', boxSizing: 'border-box',
           boxShadow: active ? '0 0 0 3px color-mix(in srgb, var(--accent-blue) 14%, transparent)' : 'none',
         }}

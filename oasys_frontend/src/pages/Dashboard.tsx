@@ -323,10 +323,10 @@ const Dashboard = () => {
 
       {/* Ghost OASYS watermark */}
       <div style={{
-        position: 'fixed', left: -140, top: '50vh',
+        position: 'fixed', left: -250, top: '50vh',
         transform: 'translateY(-50%) rotate(-90deg)',
         zIndex: 0, pointerEvents: 'none',
-        fontFamily: 'var(--font-display)', fontWeight: 700,
+        fontFamily: 'var(--font-display)', fontWeight: 800,
         fontSize: 'clamp(60px,10vw,120px)',
         color: 'var(--text-primary)', opacity: 0.02,
         userSelect: 'none', whiteSpace: 'nowrap',

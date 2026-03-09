@@ -180,12 +180,9 @@ async def submit_login(
         "txtPageAction": "0",
     }
 
-    print(f"[Login] payload={payload}")
 
     login_res = await session.client.post(SRM_LOGIN_URL, data=payload)
 
-    print(f"[Login] status={login_res.status_code}")
-    print(f"[Login] response body=\n{login_res.text[:2000]}")
 
     if login_res.status_code >= 400:
         return HTMLResponse("<h3>Login failed</h3>", status_code=401)

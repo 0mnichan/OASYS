@@ -2,12 +2,14 @@ from fastapi import FastAPI, Form, Response
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from bs4 import BeautifulSoup
+import base64
 import re
 import math
 import os
 import asyncio
 import httpx
 from sessions import create_session, get_session, cleanup_sessions
+from utils import parse_hidden_fields
 
 app = FastAPI()
 
@@ -17,16 +19,42 @@ app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")
 
 SRM_BASE_URL       = "https://sp.srmist.edu.in/srmiststudentportal"
 SRM_LOGIN_URL      = f"{SRM_BASE_URL}/students/loginManager/youLogin.jsp"
+SRM_LOGIN_SUBMIT   = "https://sp.srmist.edu.in/srmiststudentportal/SLoginServlet"
 SRM_ATTENDANCE_URL = f"{SRM_BASE_URL}/students/report/studentAttendanceDetails.jsp"
 SRM_HOME_URL       = f"{SRM_BASE_URL}/students/loginManager/UserHomePage.jsp"
 
-CAPTCHA_BROWSER_HEADERS = {
-    "X-Requested-With": "XMLHttpRequest",
-    "Referer": SRM_LOGIN_URL,
-    "Accept": "text/plain, */*; q=0.01",
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+
+BROWSER_HEADERS = {
+    "User-Agent": UA,
     "Accept-Language": "en-US,en;q=0.9",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
 }
+
+
+def compute_js_response(js_challenge: str) -> tuple[str, str]:
+    fingerprint = (
+        UA +
+        "1440" +
+        "900" +
+        "en-US" +
+        "Linux x86_64" +
+        "24" +
+        "Asia/Calcutta" +
+        "2"
+    )
+    js_response = base64.b64encode((js_challenge + fingerprint).encode()).decode()
+    return js_response, fingerprint
+
+
+def extract_captcha_img_url(login_page_html: str) -> str | None:
+    soup = BeautifulSoup(login_page_html, "html.parser")
+    img = soup.find("img", src=re.compile(r"SCaptchaServlet"))
+    if img:
+        src = img["src"]
+        if src.startswith("/"):
+            return f"https://sp.srmist.edu.in{src}"
+        return src
+    return None
 
 
 def extract_captcha_text(login_page_html: str) -> str | None:
@@ -34,51 +62,48 @@ def extract_captcha_text(login_page_html: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
-def extract_captcha_url(login_page_html: str) -> str | None:
-    match = re.search(r'const CAPTCHA_URL\s*=\s*["\']([^"\']+)["\']', login_page_html)
-    return f"https://sp.srmist.edu.in{match.group(1)}" if match else None
-
-
-async def fetch_captcha_with_retry(session, login_page_html: str, retries: int = 4, delay: float = 1.0) -> str:
-    captcha_url = extract_captcha_url(login_page_html)
-    if not captcha_url:
-        raise ValueError("Could not find CAPTCHA_URL in login page HTML")
-
+async def fetch_captcha_image_b64(session, captcha_url: str, referer: str, retries: int = 4, delay: float = 1.0) -> str:
     last_exc = None
-
     for attempt in range(retries):
         try:
-            res = await session.client.get(captcha_url, timeout=10.0, headers=CAPTCHA_BROWSER_HEADERS)
+            res = await session.client.get(captcha_url, timeout=10.0, headers={
+                **BROWSER_HEADERS,
+                "Referer": referer,
+            })
             res.raise_for_status()
-            return res.text.strip()
-
+            return base64.b64encode(res.content).decode("utf-8")
         except (httpx.ReadError, httpx.ConnectError, httpx.TimeoutException) as e:
             last_exc = e
             if attempt < retries - 1:
                 await asyncio.sleep(delay * (attempt + 1))
-            continue
-
         except Exception as e:
             raise e
-
     raise last_exc
 
 
 async def get_captcha(session, login_page_html: str) -> dict:
     text = extract_captcha_text(login_page_html)
-
     if text:
         print(f"[Captcha] Plain text mode: '{text}'")
         return {"captcha_image": None, "captcha_solved": text}
 
-    print("[Captcha] Image mode")
+    captcha_url = extract_captcha_img_url(login_page_html)
+    if captcha_url:
+        print(f"[Captcha] Image mode: {captcha_url}")
+        b64 = await fetch_captcha_image_b64(session, captcha_url, referer=SRM_LOGIN_URL)
+        return {"captcha_image": b64, "captcha_solved": None}
 
-    b64 = await fetch_captcha_with_retry(session, login_page_html)
+    raise ValueError("Could not find captcha in login page HTML")
 
-    return {
-        "captcha_image": b64,
-        "captcha_solved": None
-    }
+
+def is_login_failed(response: httpx.Response) -> bool:
+    if response.status_code >= 400:
+        return True
+    if "youLogin.jsp" in str(response.url):
+        return True
+    if "captcha-text" in response.text or "SCaptchaServlet" in response.text:
+        return True
+    return False
 
 
 @app.api_route("/stat", methods=["GET", "HEAD"])
@@ -99,66 +124,42 @@ async def serve_index():
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def serve_spa(full_path: str):
     index_file = os.path.join(frontend_path, "index.html")
-
     if os.path.exists(index_file):
         return FileResponse(index_file)
-
-    return Response(
-        content="Frontend not built yet",
-        media_type="text/plain",
-        status_code=404
-    )
+    return Response(content="Frontend not built yet", media_type="text/plain", status_code=404)
 
 
 @app.post("/start_login/")
 async def start_login(user_id: str = Form(...)):
     session = await create_session(user_id)
-
-    login_page = await session.client.get(SRM_LOGIN_URL)
-
+    login_page = await session.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS)
     session.login_page_html = login_page.text
 
     try:
         result = await get_captcha(session, login_page.text)
-
         session.captcha_image = result["captcha_image"]
-
         return JSONResponse(result)
-
     except Exception as e:
         print(f"Captcha fetch failed: {e}")
-
-        return JSONResponse(
-            {"error": "Could not load captcha from SRM. Try again."},
-            status_code=503
-        )
+        return JSONResponse({"error": "Could not load captcha from SRM. Try again."}, status_code=503)
 
 
 @app.post("/refresh_captcha/")
 async def refresh_captcha(user_id: str = Form(...)):
     session = get_session(user_id)
-
     if not session:
         return JSONResponse({"error": "Session invalid"}, status_code=400)
 
-    login_page = await session.client.get(SRM_LOGIN_URL)
-
+    login_page = await session.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS)
     session.login_page_html = login_page.text
 
     try:
         result = await get_captcha(session, login_page.text)
-
         session.captcha_image = result["captcha_image"]
-
         return JSONResponse(result)
-
     except Exception as e:
         print(f"Captcha refresh failed: {e}")
-
-        return JSONResponse(
-            {"error": "Could not refresh captcha. Try again."},
-            status_code=503
-        )
+        return JSONResponse({"error": "Could not refresh captcha. Try again."}, status_code=503)
 
 
 @app.post("/submit_login/")
@@ -169,40 +170,54 @@ async def submit_login(
     captcha: str = Form(...),
 ):
     session = get_session(user_id)
-
     if not session:
         return HTMLResponse("<h3>Session expired</h3>", status_code=400)
 
+    hidden_fields = parse_hidden_fields(session.login_page_html)
+    js_challenge = hidden_fields.get("jsChallenge", "")
+    js_response, fingerprint = compute_js_response(js_challenge)
+
     payload = {
-        "login": netid,
-        "passwd": password,
-        "ccode": captcha,
+        "username": netid,
+        "password": password,
+        "captcha": captcha,
         "txtPageAction": "0",
+        "csrfToken": hidden_fields.get("csrfToken", ""),
+        "jsChallenge": js_challenge,
+        "jsResponse": js_response,
+        "fingerprint": fingerprint,
+        "netId": netid,
     }
 
+    login_res = await session.client.post(SRM_LOGIN_SUBMIT, data=payload, timeout=15.0,
+        follow_redirects=True,
+        headers={
+            **BROWSER_HEADERS,
+            "Referer": SRM_LOGIN_URL,
+            "Origin": "https://sp.srmist.edu.in",
+        })
 
-    login_res = await session.client.post(SRM_LOGIN_URL, data=payload)
+    print(f"[Login] url={login_res.url} status={login_res.status_code} netid={netid}")
+    print(f"[Login] history={[str(r.url) for r in login_res.history]}")
+    print(f"[Login] forbidden body={login_res.text}")
 
-
-    if login_res.status_code >= 400:
+    if is_login_failed(login_res):
+        print(f"[Login] Failed — netid={netid} user_id={user_id}")
         return HTMLResponse("<h3>Login failed</h3>", status_code=401)
+
+    print(f"[Login] Success — netid={netid} user_id={user_id}")
 
     student_name = ""
     reg_number = ""
 
     try:
-        home_res = await session.client.get(SRM_HOME_URL)
-
+        home_res = await session.client.get(SRM_HOME_URL, headers=BROWSER_HEADERS)
         home_soup = BeautifulSoup(home_res.text, "html.parser")
-
         subtitles = home_soup.find_all("div", class_="sidenav-footer-subtitle")
-
         if len(subtitles) >= 1:
             reg_number = subtitles[0].get_text(strip=True)
-
         if len(subtitles) >= 2:
             student_name = subtitles[1].get_text(strip=True)
-
     except Exception:
         pass
 
@@ -212,23 +227,19 @@ async def submit_login(
         "hdnFormDetails": "1",
     }
 
-    attendance_res = await session.client.post(
-        SRM_ATTENDANCE_URL,
-        data=attendance_payload
-    )
+    attendance_res = await session.client.post(SRM_ATTENDANCE_URL, data=attendance_payload)
+    print(f"[Attendance] status={attendance_res.status_code} url={attendance_res.url}")
+    print(f"[Attendance] snippet={attendance_res.text[:300]}")
 
     soup = BeautifulSoup(attendance_res.text, "html.parser")
-
     table = soup.find("table")
 
     if not table:
         return HTMLResponse("<h3>Attendance table not found.</h3>")
 
     header_row = table.find("tr")
-
     new_th = soup.new_tag("th")
     new_th.string = "Action"
-
     header_row.append(new_th)
 
     def req_attendance(present, total, percentage=75):
@@ -238,18 +249,14 @@ async def submit_login(
         return math.floor((100 * present - percentage * total) / percentage)
 
     for row in table.find_all("tr")[1:]:
-
         cols = row.find_all("td")
-
         if len(cols) < 8:
             continue
-
         try:
             total = int(cols[2].text.strip())
             present = int(cols[3].text.strip())
         except ValueError:
             continue
-
         if "Total" in cols[0].text:
             continue
 
@@ -267,7 +274,6 @@ async def submit_login(
         new_td = soup.new_tag("td")
         new_td.string = action
         new_td["style"] = f"background:{color}; font-weight:bold; text-align:center;"
-
         row.append(new_td)
 
     html_out = f"""
@@ -285,11 +291,8 @@ async def submit_login(
     <body>
         <div id="oasys-student-name" style="display:none">{student_name}</div>
         <div id="oasys-reg-number" style="display:none">{reg_number}</div>
-
         <h2>📊 Course-wise Attendance</h2>
-
         {str(table)}
-
     </body>
     </html>
     """

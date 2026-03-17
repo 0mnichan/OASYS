@@ -151,7 +151,7 @@ const LoginForm: React.FC = () => {
             Sign In
           </h2>
           <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
-            SRM Student Portal
+            SRM RMP Student Portal
           </p>
         </div>
 
@@ -171,7 +171,7 @@ const LoginForm: React.FC = () => {
             placeholder="Your portal password" focused={focused} name="password" onFocus={setFocused} autoComplete="current-password" />
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: 'var(--text-label)', letterSpacing: '0.14em', fontWeight: 700 }}>CAPTCHA</div>
+            <div style={{ fontFamily: FONT_MONO, fontSize: 10, color: 'var(--text-label)', letterSpacing: '0.14em', fontWeight: 700 }}>CAPTCHA (pls wait srm is slow)</div>
 
             <div style={{
               background: 'var(--bg-card)', border: '1px solid var(--border-card)',

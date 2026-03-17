@@ -1,10 +1,18 @@
-import httpx, asyncio, uuid, time
+import asyncio
+import uuid
+import time
 
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    import httpx
+    CURL_CFFI_AVAILABLE = False
+    print("[!] curl_cffi not available, falling back to httpx")
 
 _sessions = {}
 
-
-SESSION_TTL = 900  
+SESSION_TTL = 900
 
 
 class Session:
@@ -13,22 +21,32 @@ class Session:
         self.session_id = str(uuid.uuid4())
         self.created = time.time()
         self.last_used = time.time()
-        self.client = httpx.AsyncClient(headers={"User-Agent": "OASYS/1.0"})
+        self.login_page_html = ""
         self.captcha_image = None
 
+        if CURL_CFFI_AVAILABLE:
+            self.client = CurlAsyncSession(impersonate="chrome124")
+        else:
+            self.client = httpx.AsyncClient(headers={"User-Agent": "OASYS/1.0"})
+
     async def close(self):
-        await self.client.aclose()
+        try:
+            if CURL_CFFI_AVAILABLE:
+                await self.client.close()
+            else:
+                await self.client.aclose()
+        except Exception:
+            pass
 
 
 async def create_session(user_id):
-    
     old = _sessions.pop(user_id, None)
     if old:
         await old.close()
 
     sess = Session(user_id)
     _sessions[user_id] = sess
-    print(f"[+] New session for {user_id}")
+    print(f"[+] New session for {user_id} (curl_cffi={CURL_CFFI_AVAILABLE})")
     return sess
 
 
@@ -37,11 +55,10 @@ def get_session(user_id):
     if not sess:
         return None
 
-    
     if time.time() - sess.last_used > SESSION_TTL:
         try:
             asyncio.create_task(sess.close())
-        except:
+        except Exception:
             pass
         _sessions.pop(user_id, None)
         print(f"[x] Session expired for {user_id}")
@@ -52,15 +69,14 @@ def get_session(user_id):
 
 
 async def cleanup_sessions():
-    """Run periodically to remove old sessions"""
     while True:
         now = time.time()
         expired = [uid for uid, s in _sessions.items() if now - s.last_used > SESSION_TTL]
         for uid in expired:
             try:
                 await _sessions[uid].close()
-            except:
+            except Exception:
                 pass
             _sessions.pop(uid, None)
             print(f"[x] Cleaned expired session for {uid}")
-        await asyncio.sleep(300)  
+        await asyncio.sleep(300)

@@ -3,3 +3,5 @@ uvicorn
 httpx
 beautifulsoup4
 python-multipart
+curl-cffi
+random

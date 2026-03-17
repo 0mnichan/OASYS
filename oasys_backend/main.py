@@ -2,12 +2,13 @@ from fastapi import FastAPI, Form, Response
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from bs4 import BeautifulSoup
+from urllib.parse import urlencode
 import base64
+import random
 import re
 import math
 import os
 import asyncio
-import httpx
 from sessions import create_session, get_session, cleanup_sessions
 from utils import parse_hidden_fields
 
@@ -23,24 +24,61 @@ SRM_LOGIN_SUBMIT   = "https://sp.srmist.edu.in/srmiststudentportal/SLoginServlet
 SRM_ATTENDANCE_URL = f"{SRM_BASE_URL}/students/report/studentAttendanceDetails.jsp"
 SRM_HOME_URL       = f"{SRM_BASE_URL}/students/loginManager/UserHomePage.jsp"
 
-UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+
+SCREEN_SIZES = [
+    ("1920", "1080"),
+    ("1680", "1050"),
+    ("1440", "900"),
+    ("1366", "768"),
+    ("1536", "864"),
+    ("2560", "1440"),
+]
+
+CONCURRENCY = ["4", "6", "8", "12", "16"]
 
 BROWSER_HEADERS = {
     "User-Agent": UA,
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "DNT": "1",
+}
+
+LOGIN_SUBMIT_HEADERS = {
+    "User-Agent": UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Cache-Control": "max-age=0",
+    "Connection": "keep-alive",
+    "Content-Type": "application/x-www-form-urlencoded",
+    "DNT": "1",
+    "Origin": "https://sp.srmist.edu.in",
+    "Referer": SRM_LOGIN_URL,
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+    "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Linux"',
 }
 
 
 def compute_js_response(js_challenge: str) -> tuple[str, str]:
+    width, height = random.choice(SCREEN_SIZES)
+    cores = random.choice(CONCURRENCY)
     fingerprint = (
         UA +
-        "1440" +
-        "900" +
+        width +
+        height +
         "en-US" +
         "Linux x86_64" +
         "24" +
         "Asia/Calcutta" +
-        "2"
+        cores
     )
     js_response = base64.b64encode((js_challenge + fingerprint).encode()).decode()
     return js_response, fingerprint
@@ -72,12 +110,10 @@ async def fetch_captcha_image_b64(session, captcha_url: str, referer: str, retri
             })
             res.raise_for_status()
             return base64.b64encode(res.content).decode("utf-8")
-        except (httpx.ReadError, httpx.ConnectError, httpx.TimeoutException) as e:
+        except Exception as e:
             last_exc = e
             if attempt < retries - 1:
                 await asyncio.sleep(delay * (attempt + 1))
-        except Exception as e:
-            raise e
     raise last_exc
 
 
@@ -96,10 +132,12 @@ async def get_captcha(session, login_page_html: str) -> dict:
     raise ValueError("Could not find captcha in login page HTML")
 
 
-def is_login_failed(response: httpx.Response) -> bool:
+def is_login_failed(response) -> bool:
     if response.status_code >= 400:
         return True
     if "youLogin.jsp" in str(response.url):
+        return True
+    if "forbiddenPage" in str(response.url):
         return True
     if "captcha-text" in response.text or "SCaptchaServlet" in response.text:
         return True
@@ -186,20 +224,21 @@ async def submit_login(
         "jsChallenge": js_challenge,
         "jsResponse": js_response,
         "fingerprint": fingerprint,
-        "netId": netid,
+        "netId": "",
     }
 
-    login_res = await session.client.post(SRM_LOGIN_SUBMIT, data=payload, timeout=15.0,
-        follow_redirects=True,
-        headers={
-            **BROWSER_HEADERS,
-            "Referer": SRM_LOGIN_URL,
-            "Origin": "https://sp.srmist.edu.in",
-        })
+    await asyncio.sleep(1.5)
+
+    login_res = await session.client.post(
+        SRM_LOGIN_SUBMIT,
+        data=urlencode(payload),
+        timeout=15.0,
+        allow_redirects=True,
+        headers=LOGIN_SUBMIT_HEADERS,
+    )
 
     print(f"[Login] url={login_res.url} status={login_res.status_code} netid={netid}")
     print(f"[Login] history={[str(r.url) for r in login_res.history]}")
-    print(f"[Login] forbidden body={login_res.text}")
 
     if is_login_failed(login_res):
         print(f"[Login] Failed — netid={netid} user_id={user_id}")
@@ -229,7 +268,6 @@ async def submit_login(
 
     attendance_res = await session.client.post(SRM_ATTENDANCE_URL, data=attendance_payload)
     print(f"[Attendance] status={attendance_res.status_code} url={attendance_res.url}")
-    print(f"[Attendance] snippet={attendance_res.text[:300]}")
 
     soup = BeautifulSoup(attendance_res.text, "html.parser")
     table = soup.find("table")

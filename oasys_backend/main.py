@@ -105,9 +105,20 @@ async def fetch_captcha_image_b64(session, captcha_url: str, referer: str, retri
     for attempt in range(retries):
         try:
             res = await session.client.get(captcha_url, timeout=10.0, headers={
-                **BROWSER_HEADERS,
-                "Referer": referer,
+                "User-Agent": UA,
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": SRM_LOGIN_URL,
+                "Sec-Fetch-Dest": "image",
+                "Sec-Fetch-Mode": "no-cors",
+                "Sec-Fetch-Site": "same-origin",
+                "Sec-GPC": "1",
+                "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": '"Linux"',
+                "DNT": "1",
             })
+            print(f"[Captcha fetch] status={res.status_code} content-type={res.headers.get('content-type', '')} size={len(res.content)}")
             res.raise_for_status()
             return base64.b64encode(res.content).decode("utf-8")
         except Exception as e:

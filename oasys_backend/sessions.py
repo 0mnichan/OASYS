@@ -68,6 +68,11 @@ def get_session(user_id):
     return sess
 
 
+def register_session(user_id, session):
+    session.user_id = user_id
+    _sessions[user_id] = session
+
+
 async def cleanup_sessions():
     while True:
         now = time.time()

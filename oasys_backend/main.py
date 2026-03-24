@@ -9,7 +9,8 @@ import re
 import math
 import os
 import asyncio
-from sessions import create_session, get_session, cleanup_sessions
+import time
+from sessions import create_session, get_session, cleanup_sessions, Session, register_session
 from utils import parse_hidden_fields
 
 app = FastAPI()
@@ -118,13 +119,14 @@ async def fetch_captcha_image_b64(session, captcha_url: str, referer: str, retri
                 "sec-ch-ua-platform": '"Linux"',
                 "DNT": "1",
             })
-            print(f"[Captcha fetch] status={res.status_code} content-type={res.headers.get('content-type', '')} size={len(res.content)}")
-            res.raise_for_status()
+            content_type = res.headers.get("content-type", "")
+            if "image" not in content_type:
+                raise ValueError(f"Not an image: {content_type}")
             return base64.b64encode(res.content).decode("utf-8")
         except Exception as e:
             last_exc = e
             if attempt < retries - 1:
-                await asyncio.sleep(delay * (attempt + 1))
+                await asyncio.sleep(delay)  # flat 1s delay, not increasing
     raise last_exc
 
 
@@ -141,6 +143,39 @@ async def get_captcha(session, login_page_html: str) -> dict:
         return {"captcha_image": b64, "captcha_solved": None}
 
     raise ValueError("Could not find captcha in login page HTML")
+
+
+_warm: dict | None = None
+_warm_needed: asyncio.Event | None = None
+
+
+async def _warm_loop():
+    global _warm
+    while True:
+        old = _warm
+        _warm = None
+        if old:
+            try:
+                await old["session"].close()
+            except Exception:
+                pass
+
+        try:
+            sess = Session("__warm__")
+            login_page = await sess.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS)
+            sess.login_page_html = login_page.text
+            result = await get_captcha(sess, login_page.text)
+            sess.captcha_image = result.get("captcha_image")
+            _warm = {"session": sess, "captcha_result": result, "warmed_at": time.time()}
+            print("[Warm] Session ready")
+        except Exception as e:
+            print(f"[Warm] Failed to warm session: {e}")
+
+        _warm_needed.clear()
+        try:
+            await asyncio.wait_for(_warm_needed.wait(), timeout=60)
+        except asyncio.TimeoutError:
+            pass
 
 
 def is_login_failed(response) -> bool:
@@ -170,6 +205,25 @@ async def serve_index():
     return FileResponse(os.path.join(frontend_path, "index.html"))
 
 
+@app.get("/health/captcha")
+async def health_captcha():
+    sess = Session("__health__")
+    try:
+        login_page = await sess.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS, timeout=10.0)
+        captcha_url = extract_captcha_img_url(login_page.text)
+        if not captcha_url:
+            return JSONResponse({"status": "fail", "reason": "captcha URL not found in login page"}, status_code=503)
+        b64 = await fetch_captcha_image_b64(sess, captcha_url, referer=SRM_LOGIN_URL)
+        img_bytes = base64.b64decode(b64)
+        if img_bytes[:4] != b"\x89PNG":
+            return JSONResponse({"status": "fail", "reason": f"unexpected image header: {img_bytes[:4].hex()}"}, status_code=503)
+        return JSONResponse({"status": "ok"})
+    except Exception as e:
+        return JSONResponse({"status": "fail", "reason": str(e)}, status_code=503)
+    finally:
+        await sess.close()
+
+
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 async def serve_spa(full_path: str):
     index_file = os.path.join(frontend_path, "index.html")
@@ -180,6 +234,20 @@ async def serve_spa(full_path: str):
 
 @app.post("/start_login/")
 async def start_login(user_id: str = Form(...)):
+    global _warm
+    warm = _warm
+    _warm = None
+
+    if warm:
+        print(f"[Warm] Serving warm session to {user_id}")
+        if _warm_needed:
+            _warm_needed.set()
+        session = warm["session"]
+        session.last_used = time.time()
+        register_session(user_id, session)
+        return JSONResponse(warm["captcha_result"])
+
+    # Fallback: fresh session
     session = await create_session(user_id)
     login_page = await session.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS)
     session.login_page_html = login_page.text
@@ -350,5 +418,8 @@ async def submit_login(
 
 
 @app.on_event("startup")
-async def start_cleanup():
+async def start_background_tasks():
+    global _warm_needed
+    _warm_needed = asyncio.Event()
+    asyncio.create_task(_warm_loop())
     asyncio.create_task(cleanup_sessions())

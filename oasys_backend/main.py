@@ -10,6 +10,7 @@ import math
 import os
 import asyncio
 import time
+from collections import deque
 from sessions import create_session, get_session, cleanup_sessions, Session, register_session
 from utils import parse_hidden_fields
 
@@ -145,37 +146,42 @@ async def get_captcha(session, login_page_html: str) -> dict:
     raise ValueError("Could not find captcha in login page HTML")
 
 
-_warm: dict | None = None
+WARM_POOL_SIZE = 3
+WARM_TTL = 60
+
+_warm_pool: deque = deque()
 _warm_needed: asyncio.Event | None = None
 
 
 async def _warm_loop():
-    global _warm
     while True:
-        old = _warm
-        _warm = None
-        if old:
+        # Top up pool to WARM_POOL_SIZE
+        while len(_warm_pool) < WARM_POOL_SIZE:
             try:
-                await old["session"].close()
-            except Exception:
-                pass
+                sess = Session("__warm__")
+                login_page = await sess.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS)
+                sess.login_page_html = login_page.text
+                result = await get_captcha(sess, login_page.text)
+                sess.captcha_image = result.get("captcha_image")
+                _warm_pool.append({"session": sess, "captcha_result": result, "warmed_at": time.time()})
+                print(f"[Warm] Pool {len(_warm_pool)}/{WARM_POOL_SIZE}")
+            except Exception as e:
+                print(f"[Warm] Failed to warm session: {e}")
+                await asyncio.sleep(5)
+                break
 
-        try:
-            sess = Session("__warm__")
-            login_page = await sess.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS)
-            sess.login_page_html = login_page.text
-            result = await get_captcha(sess, login_page.text)
-            sess.captcha_image = result.get("captcha_image")
-            _warm = {"session": sess, "captcha_result": result, "warmed_at": time.time()}
-            print("[Warm] Session ready")
-        except Exception as e:
-            print(f"[Warm] Failed to warm session: {e}")
-
+        # Wait for a consumption signal or TTL expiry
         _warm_needed.clear()
         try:
-            await asyncio.wait_for(_warm_needed.wait(), timeout=60)
+            await asyncio.wait_for(_warm_needed.wait(), timeout=WARM_TTL)
         except asyncio.TimeoutError:
-            pass
+            # Flush all — captchas are stale, refill on next iteration
+            print("[Warm] TTL expired, flushing pool")
+            while _warm_pool:
+                try:
+                    await _warm_pool.popleft()["session"].close()
+                except Exception:
+                    pass
 
 
 def is_login_failed(response) -> bool:
@@ -234,12 +240,9 @@ async def serve_spa(full_path: str):
 
 @app.post("/start_login/")
 async def start_login(user_id: str = Form(...)):
-    global _warm
-    warm = _warm
-    _warm = None
-
-    if warm:
-        print(f"[Warm] Serving warm session to {user_id}")
+    if _warm_pool:
+        warm = _warm_pool.popleft()
+        print(f"[Warm] Serving warm session to {user_id} (pool now {len(_warm_pool)}/{WARM_POOL_SIZE})")
         if _warm_needed:
             _warm_needed.set()
         session = warm["session"]

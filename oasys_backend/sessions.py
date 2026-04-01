@@ -68,6 +68,10 @@ def get_session(user_id):
     return sess
 
 
+def get_session_count():
+    return _sessions
+
+
 def register_session(user_id, session):
     session.user_id = user_id
     _sessions[user_id] = session

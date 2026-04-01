@@ -1,8 +1,10 @@
-from fastapi import FastAPI, Form, Response
+from fastapi import FastAPI, Form, Response, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from bs4 import BeautifulSoup
 from urllib.parse import urlencode
+from html import escape as html_escape
 import base64
 import random
 import re
@@ -11,10 +13,31 @@ import os
 import asyncio
 import time
 from collections import deque
-from sessions import create_session, get_session, cleanup_sessions, Session, register_session
+from sessions import create_session, get_session, get_session_count, cleanup_sessions, Session, register_session
 from utils import parse_hidden_fields
 
+MAX_SESSIONS = 500
+MAX_FIELD_LENGTH = 256
+RESERVED_USER_IDS = {"__warm__", "__health__"}
+
 app = FastAPI()
+
+ALLOWED_ORIGINS = os.environ.get("OASYS_ALLOWED_ORIGINS", "").split(",")
+ALLOWED_ORIGINS = [o.strip() for o in ALLOWED_ORIGINS if o.strip()]
+
+if ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
+
+# Simple in-memory rate limiter: tracks (ip -> list of timestamps)
+_rate_limit: dict[str, deque] = {}
+RATE_LIMIT_WINDOW = 60  # seconds
+RATE_LIMIT_MAX = 15     # max requests per window per IP for auth endpoints
 
 frontend_path = os.path.join(os.path.dirname(__file__), "../oasys_frontend/dist")
 
@@ -67,6 +90,26 @@ LOGIN_SUBMIT_HEADERS = {
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": '"Linux"',
 }
+
+
+ALLOWED_TABLE_TAGS = {"table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col"}
+ALLOWED_TABLE_ATTRS = {"style", "class", "colspan", "rowspan"}
+
+
+def sanitize_table(table_tag) -> str:
+    """Strip all tags/attrs from a BeautifulSoup table except safe table elements."""
+    for tag in table_tag.find_all(True):
+        if tag.name not in ALLOWED_TABLE_TAGS:
+            tag.unwrap()
+        else:
+            attrs = dict(tag.attrs)
+            for attr in attrs:
+                if attr not in ALLOWED_TABLE_ATTRS:
+                    del tag[attr]
+            # Escape text content to prevent injection via cell values
+            for string in tag.strings:
+                pass  # BeautifulSoup NavigableString is already escaped on str()
+    return str(table_tag)
 
 
 def compute_js_response(js_challenge: str) -> tuple[str, str]:
@@ -184,6 +227,27 @@ async def _warm_loop():
                     pass
 
 
+def _check_rate_limit(request: Request) -> bool:
+    """Returns True if the request should be rate-limited (rejected)."""
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    timestamps = _rate_limit.setdefault(ip, deque())
+    # Purge old entries
+    while timestamps and timestamps[0] < now - RATE_LIMIT_WINDOW:
+        timestamps.popleft()
+    if len(timestamps) >= RATE_LIMIT_MAX:
+        return True
+    timestamps.append(now)
+    return False
+
+
+def _validate_field(value: str, name: str) -> str | None:
+    """Returns an error message if the field is invalid, else None."""
+    if len(value) > MAX_FIELD_LENGTH:
+        return f"{name} exceeds maximum length"
+    return None
+
+
 def is_login_failed(response) -> bool:
     if response.status_code >= 400:
         return True
@@ -239,7 +303,13 @@ async def serve_spa(full_path: str):
 
 
 @app.post("/start_login/")
-async def start_login(user_id: str = Form(...)):
+async def start_login(request: Request, user_id: str = Form(...)):
+    if _check_rate_limit(request):
+        return JSONResponse({"error": "Too many requests. Try again later."}, status_code=429)
+    if user_id in RESERVED_USER_IDS:
+        return JSONResponse({"error": "Invalid user ID"}, status_code=400)
+    if len(get_session_count()) >= MAX_SESSIONS and not get_session(user_id):
+        return JSONResponse({"error": "Server busy. Try again later."}, status_code=503)
     if _warm_pool:
         warm = _warm_pool.popleft()
         print(f"[Warm] Serving warm session to {user_id} (pool now {len(_warm_pool)}/{WARM_POOL_SIZE})")
@@ -265,7 +335,9 @@ async def start_login(user_id: str = Form(...)):
 
 
 @app.post("/refresh_captcha/")
-async def refresh_captcha(user_id: str = Form(...)):
+async def refresh_captcha(request: Request, user_id: str = Form(...)):
+    if _check_rate_limit(request):
+        return JSONResponse({"error": "Too many requests. Try again later."}, status_code=429)
     session = get_session(user_id)
     if not session:
         return JSONResponse({"error": "Session invalid"}, status_code=400)
@@ -284,11 +356,18 @@ async def refresh_captcha(user_id: str = Form(...)):
 
 @app.post("/submit_login/")
 async def submit_login(
+    request: Request,
     user_id: str = Form(...),
     netid: str = Form(...),
     password: str = Form(...),
     captcha: str = Form(...),
 ):
+    if _check_rate_limit(request):
+        return JSONResponse({"error": "Too many requests. Try again later."}, status_code=429)
+    for field_name, field_val in [("netid", netid), ("password", password), ("captcha", captcha)]:
+        err = _validate_field(field_val, field_name)
+        if err:
+            return JSONResponse({"error": err}, status_code=400)
     session = get_session(user_id)
     if not session:
         return HTMLResponse("<h3>Session expired</h3>", status_code=400)
@@ -319,14 +398,14 @@ async def submit_login(
         headers=LOGIN_SUBMIT_HEADERS,
     )
 
-    print(f"[Login] url={login_res.url} status={login_res.status_code} netid={netid}")
+    print(f"[Login] url={login_res.url} status={login_res.status_code}")
     print(f"[Login] history={[str(r.url) for r in login_res.history]}")
 
     if is_login_failed(login_res):
-        print(f"[Login] Failed — netid={netid} user_id={user_id}")
+        print(f"[Login] Failed \u2014 user_id={user_id}")
         return HTMLResponse("<h3>Login failed</h3>", status_code=401)
 
-    print(f"[Login] Success — netid={netid} user_id={user_id}")
+    print(f"[Login] Success \u2014 user_id={user_id}")
 
     student_name = ""
     reg_number = ""
@@ -409,10 +488,10 @@ async def submit_login(
         </style>
     </head>
     <body>
-        <div id="oasys-student-name" style="display:none">{student_name}</div>
-        <div id="oasys-reg-number" style="display:none">{reg_number}</div>
-        <h2>📊 Course-wise Attendance</h2>
-        {str(table)}
+        <div id="oasys-student-name" style="display:none">{html_escape(student_name)}</div>
+        <div id="oasys-reg-number" style="display:none">{html_escape(reg_number)}</div>
+        <h2>\ud83d\udcca Course-wise Attendance</h2>
+        {sanitize_table(table)}
     </body>
     </html>
     """

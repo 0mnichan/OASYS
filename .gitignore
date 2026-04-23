@@ -33,3 +33,4 @@ yarn-debug.log*
 yarn-error.log*
  
 oasys_backend/script.py
+oasys_backend/.admin_credential.json

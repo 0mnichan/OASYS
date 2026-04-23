@@ -3,13 +3,13 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-"scripts": {
-  "dev": "vite",
-  "build": "vite build",
-  "preview": "vite preview",
-  "serve-all": "npm run build && concurrently \"npm run backend\"",
-  "backend": "cd ../oasys_backend && . ../venv/bin/activate && uvicorn main:app --reload"
-},
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "serve-all": "npm run build && concurrently \"npm run backend\"",
+    "backend": "cd ../oasys_backend && . ../venv/bin/activate && uvicorn main:app --reload"
+  },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
     "@radix-ui/react-accordion": "^1.2.0",
@@ -80,6 +80,7 @@
     "tailwindcss": "^3.4.11",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.0.1",
-    "vite": "^5.4.1"
+    "vite": "^5.4.1",
+    "vite-plugin-pwa": "^1.2.0"
   }
 }

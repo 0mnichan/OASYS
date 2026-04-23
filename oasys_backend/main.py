@@ -10,6 +10,9 @@ import math
 import os
 import asyncio
 import time
+import mimetypes
+
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 from collections import deque
 from sessions import create_session, get_session, cleanup_sessions, Session, register_session
 from utils import parse_hidden_fields
@@ -230,11 +233,18 @@ async def health_captcha():
         await sess.close()
 
 
-@app.get("/{full_path:path}", response_class=HTMLResponse)
+@app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
+    # Serve actual dist files (sw.js, manifest.webmanifest, icons, etc.)
+    # before falling back to SPA index — otherwise the SW catch-all returns HTML
+    # and Chrome can't register the service worker or parse the manifest.
+    base = os.path.realpath(frontend_path)
+    requested = os.path.realpath(os.path.join(frontend_path, full_path))
+    if requested.startswith(base + os.sep) and os.path.isfile(requested):
+        return FileResponse(requested)
     index_file = os.path.join(frontend_path, "index.html")
     if os.path.exists(index_file):
-        return FileResponse(index_file)
+        return FileResponse(index_file, media_type="text/html")
     return Response(content="Frontend not built yet", media_type="text/plain", status_code=404)
 
 

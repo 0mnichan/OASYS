@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Form, Response
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi import FastAPI, Form, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from bs4 import BeautifulSoup
 from urllib.parse import urlencode
+from html import escape
 import base64
 import random
 import re
@@ -10,13 +11,20 @@ import math
 import os
 import asyncio
 import time
+import datetime
+import json
+import secrets
 from collections import deque
 from sessions import create_session, get_session, cleanup_sessions, Session, register_session
 from utils import parse_hidden_fields
+import admin_auth
 
 app = FastAPI()
 
 frontend_path = os.path.join(os.path.dirname(__file__), "../oasys_frontend/dist")
+
+# Each entry: {netid, timestamp (ISO), user_id}
+_login_log: list[dict] = []
 
 app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
 
@@ -184,6 +192,31 @@ async def _warm_loop():
                     pass
 
 
+def sanitize_table_html(table) -> str:
+    """Re-render a BeautifulSoup table as safe HTML — all cell text is escaped,
+    only structural tags and safe attributes (style, colspan, rowspan) are kept."""
+    lines = ['<table style="border-collapse:collapse;width:100%;background:white;box-shadow:0 0 10px rgba(0,0,0,0.1)">']
+    for row in table.find_all("tr"):
+        lines.append("<tr>")
+        for cell in row.find_all(["th", "td"]):
+            tag = cell.name
+            attrs = ""
+            style = cell.get("style", "")
+            if style:
+                attrs += f' style="{escape(style)}"'
+            colspan = cell.get("colspan", "")
+            if colspan:
+                attrs += f' colspan="{escape(str(colspan))}"'
+            rowspan = cell.get("rowspan", "")
+            if rowspan:
+                attrs += f' rowspan="{escape(str(rowspan))}"'
+            text = escape(cell.get_text(strip=True))
+            lines.append(f"<{tag}{attrs}>{text}</{tag}>")
+        lines.append("</tr>")
+    lines.append("</table>")
+    return "\n".join(lines)
+
+
 def is_login_failed(response) -> bool:
     if response.status_code >= 400:
         return True
@@ -225,9 +258,253 @@ async def health_captcha():
             return JSONResponse({"status": "fail", "reason": f"unexpected image header: {img_bytes[:4].hex()}"}, status_code=503)
         return JSONResponse({"status": "ok"})
     except Exception as e:
-        return JSONResponse({"status": "fail", "reason": str(e)}, status_code=503)
+        print(f"[Health] captcha check failed: {e}")
+        return JSONResponse({"status": "fail", "reason": "captcha check failed"}, status_code=503)
     finally:
         await sess.close()
+
+
+_AUTH_PAGE = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/><title>OASYS Admin — Sign In</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+         background:#0a0f1e;font-family:Arial,sans-serif}
+    .card{background:#111827;border:1px solid #1f2937;border-radius:16px;
+          padding:40px;width:360px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+    h1{color:#fff;font-size:22px;margin-bottom:8px}
+    p{color:#6b7280;font-size:13px;margin-bottom:28px;line-height:1.6}
+    button{width:100%;padding:14px;background:#003366;color:#fff;border:none;
+           border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background .2s}
+    button:hover{background:#00448a}
+    button:disabled{background:#374151;cursor:not-allowed}
+    .err{color:#ef4444;font-size:12px;margin-top:14px;text-align:center}
+    .ok{color:#6b7280;font-size:12px;margin-top:14px;text-align:center}
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>OASYS Admin</h1>
+  <p>Sign in with your passkey. Use your phone or security key when prompted.</p>
+  <button id="btn" onclick="signIn()">Sign in with Passkey</button>
+  <div id="msg"></div>
+</div>
+<script>
+  const b2b = b => b.replace(/-/g,'+').replace(/_/g,'/'),
+        buf = b => Uint8Array.from(atob(b2b(b).padEnd(b.length+(4-b.length%4)%4,'=')),c=>c.charCodeAt(0)).buffer,
+        b64 = ab => btoa(String.fromCharCode(...new Uint8Array(ab))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=/g,'');
+  async function signIn() {
+    const btn=document.getElementById('btn'), msg=document.getElementById('msg');
+    btn.disabled=true; msg.className='ok'; msg.textContent='Waiting for passkey…';
+    try {
+      const opts = await (await fetch('/auth/challenge',{method:'POST'})).json();
+      opts.challenge = buf(opts.challenge);
+      if(opts.allowCredentials) opts.allowCredentials = opts.allowCredentials.map(c=>({...c,id:buf(c.id)}));
+      const cred = await navigator.credentials.get({publicKey: opts});
+      const body = {
+        id: cred.id, rawId: b64(cred.rawId), type: cred.type,
+        response: {
+          clientDataJSON:    b64(cred.response.clientDataJSON),
+          authenticatorData: b64(cred.response.authenticatorData),
+          signature:         b64(cred.response.signature),
+        }
+      };
+      if(cred.response.userHandle) body.response.userHandle = b64(cred.response.userHandle);
+      const res = await fetch('/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if(res.ok){ msg.textContent='Authenticated! Redirecting…'; window.location.href='/admin'; }
+      else { const e=await res.json(); msg.className='err'; msg.textContent=e.error||'Authentication failed.'; btn.disabled=false; }
+    } catch(e) {
+      msg.className='err';
+      msg.textContent = e.name==='NotAllowedError' ? 'Request cancelled or timed out.' : e.message;
+      btn.disabled=false;
+    }
+  }
+</script>
+</body></html>"""
+
+_REGISTER_PAGE = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/><title>OASYS Admin — Register Passkey</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+         background:#0a0f1e;font-family:Arial,sans-serif}
+    .card{background:#111827;border:1px solid #1f2937;border-radius:16px;
+          padding:40px;width:380px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+    h1{color:#fff;font-size:22px;margin-bottom:8px}
+    p{color:#6b7280;font-size:13px;margin-bottom:6px;line-height:1.6}
+    .warn{color:#f59e0b;font-size:12px;margin-bottom:24px;padding:10px 12px;
+          background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px}
+    button{width:100%;padding:14px;background:#003366;color:#fff;border:none;
+           border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:background .2s}
+    button:hover{background:#00448a}
+    button:disabled{background:#374151;cursor:not-allowed}
+    .err{color:#ef4444;font-size:12px;margin-top:14px;text-align:center}
+    .ok{color:#22c55e;font-size:12px;margin-top:14px;text-align:center}
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>Register Passkey</h1>
+  <p>One-time setup. Register your phone or security key as the admin passkey.</p>
+  <p class="warn">This endpoint disappears after registration. Do this once.</p>
+  <button id="btn" onclick="register()">Register Passkey</button>
+  <div id="msg"></div>
+</div>
+<script>
+  const b2b = b => b.replace(/-/g,'+').replace(/_/g,'/'),
+        buf = b => Uint8Array.from(atob(b2b(b).padEnd(b.length+(4-b.length%4)%4,'=')),c=>c.charCodeAt(0)).buffer,
+        b64 = ab => btoa(String.fromCharCode(...new Uint8Array(ab))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=/g,'');
+  async function register() {
+    const btn=document.getElementById('btn'), msg=document.getElementById('msg');
+    btn.disabled=true; msg.className='ok'; msg.textContent='Follow the prompt on your device…';
+    try {
+      const opts = await (await fetch('/auth/register/options',{method:'POST'})).json();
+      opts.challenge = buf(opts.challenge);
+      opts.user.id   = buf(opts.user.id);
+      if(opts.excludeCredentials) opts.excludeCredentials=opts.excludeCredentials.map(c=>({...c,id:buf(c.id)}));
+      const cred = await navigator.credentials.create({publicKey: opts});
+      const body = {
+        id: cred.id, rawId: b64(cred.rawId), type: cred.type,
+        response: {
+          clientDataJSON:    b64(cred.response.clientDataJSON),
+          attestationObject: b64(cred.response.attestationObject),
+        }
+      };
+      const res = await fetch('/auth/register/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      if(res.ok){ msg.className='ok'; msg.textContent='Passkey registered! Go to /auth to sign in.'; }
+      else { const e=await res.json(); msg.className='err'; msg.textContent=e.error||'Registration failed.'; btn.disabled=false; }
+    } catch(e) {
+      msg.className='err';
+      msg.textContent = e.name==='NotAllowedError' ? 'Request cancelled.' : e.message;
+      btn.disabled=false;
+    }
+  }
+</script>
+</body></html>"""
+
+
+@app.get("/auth/register")
+async def auth_register_page():
+    if admin_auth.credential_registered():
+        return Response(content="Already registered.", status_code=403, media_type="text/plain")
+    return HTMLResponse(_REGISTER_PAGE)
+
+
+@app.post("/auth/register/options")
+async def auth_register_options():
+    if admin_auth.credential_registered():
+        return Response(content="Already registered.", status_code=403, media_type="text/plain")
+    return Response(content=admin_auth.registration_options_json(), media_type="application/json")
+
+
+@app.post("/auth/register/complete")
+async def auth_register_complete(request: Request):
+    body = await request.json()
+    if admin_auth.complete_registration(body):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "Registration failed. Retry from /auth/register."}, status_code=400)
+
+
+@app.get("/auth")
+async def auth_page():
+    if not admin_auth.credential_registered():
+        return RedirectResponse("/auth/register")
+    return HTMLResponse(_AUTH_PAGE)
+
+
+@app.post("/auth/challenge")
+async def auth_challenge():
+    return Response(content=admin_auth.authentication_options_json(), media_type="application/json")
+
+
+@app.post("/auth/verify")
+async def auth_verify(request: Request):
+    body = await request.json()
+    if admin_auth.complete_authentication(body):
+        token = admin_auth.create_session()
+        secure = admin_auth.RP_ID != "localhost"
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie(
+            key="admin_session",
+            value=token,
+            httponly=True,
+            samesite="strict",
+            secure=secure,
+            max_age=admin_auth.SESSION_TTL,
+        )
+        return resp
+    return JSONResponse({"error": "Authentication failed."}, status_code=401)
+
+
+@app.get("/admin")
+async def admin_dashboard(request: Request):
+    if not admin_auth.validate_session(request.cookies.get("admin_session")):
+        return RedirectResponse("/auth")
+
+    stats: dict[str, dict] = {}
+    for entry in _login_log:
+        nid = entry["netid"]
+        if nid not in stats:
+            stats[nid] = {"count": 0, "first": entry["timestamp"], "last": entry["timestamp"], "logins": []}
+        stats[nid]["count"] += 1
+        stats[nid]["last"] = entry["timestamp"]
+        stats[nid]["logins"].append(entry["timestamp"])
+
+    sorted_stats = sorted(stats.items(), key=lambda x: x[1]["count"], reverse=True)
+    rows_html = ""
+    for nid, s in sorted_stats:
+        recent = "<br>".join(s["logins"][-5:][::-1])
+        rows_html += f"""
+        <tr>
+            <td>{escape(nid)}</td>
+            <td>{s["count"]}</td>
+            <td>{escape(s["first"])}</td>
+            <td>{escape(s["last"])}</td>
+            <td style="font-size:11px;line-height:1.6">{recent}</td>
+        </tr>"""
+
+    total_logins = len(_login_log)
+    unique_users = len(stats)
+    page = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/><title>OASYS Admin</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; background: #f0f2f5; padding: 32px; }}
+    h1 {{ color: #003366; margin-bottom: 8px; }}
+    .summary {{ display: flex; gap: 24px; margin-bottom: 28px; }}
+    .card {{ background: white; border-radius: 10px; padding: 20px 28px;
+             box-shadow: 0 2px 8px rgba(0,0,0,0.08); min-width: 160px; }}
+    .card .num {{ font-size: 36px; font-weight: 700; color: #003366; }}
+    .card .lbl {{ font-size: 12px; color: #888; margin-top: 4px; }}
+    table {{ border-collapse: collapse; width: 100%; background: white;
+             box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-radius: 10px; overflow: hidden; }}
+    th {{ background: #003366; color: white; padding: 12px 14px; text-align: left; font-size: 13px; }}
+    td {{ border-bottom: 1px solid #eee; padding: 10px 14px; font-size: 13px; vertical-align: top; }}
+    tr:last-child td {{ border-bottom: none; }}
+    tr:hover td {{ background: #f7f9fc; }}
+  </style>
+</head>
+<body>
+  <h1>OASYS Admin</h1>
+  <div class="summary">
+    <div class="card"><div class="num">{unique_users}</div><div class="lbl">Unique users</div></div>
+    <div class="card"><div class="num">{total_logins}</div><div class="lbl">Total logins</div></div>
+  </div>
+  <table>
+    <thead><tr>
+      <th>NetID</th><th>Login count</th><th>First login</th><th>Last login</th><th>Recent logins (last 5)</th>
+    </tr></thead>
+    <tbody>{rows_html}</tbody>
+  </table>
+  <p style="margin-top:16px;font-size:11px;color:#aaa">Session expires in 8 hours. In-memory — resets on server restart.</p>
+</body>
+</html>"""
+    return HTMLResponse(page)
 
 
 @app.get("/{full_path:path}", response_class=HTMLResponse)
@@ -251,11 +528,10 @@ async def start_login(user_id: str = Form(...)):
         return JSONResponse(warm["captcha_result"])
 
     # Fallback: fresh session
-    session = await create_session(user_id)
-    login_page = await session.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS)
-    session.login_page_html = login_page.text
-
     try:
+        session = await create_session(user_id)
+        login_page = await session.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS, timeout=15.0)
+        session.login_page_html = login_page.text
         result = await get_captcha(session, login_page.text)
         session.captcha_image = result["captcha_image"]
         return JSONResponse(result)
@@ -270,7 +546,7 @@ async def refresh_captcha(user_id: str = Form(...)):
     if not session:
         return JSONResponse({"error": "Session invalid"}, status_code=400)
 
-    login_page = await session.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS)
+    login_page = await session.client.get(SRM_LOGIN_URL, headers=BROWSER_HEADERS, timeout=15.0)
     session.login_page_html = login_page.text
 
     try:
@@ -319,14 +595,19 @@ async def submit_login(
         headers=LOGIN_SUBMIT_HEADERS,
     )
 
-    print(f"[Login] url={login_res.url} status={login_res.status_code} netid={netid}")
+    print(f"[Login] url={login_res.url} status={login_res.status_code}")
     print(f"[Login] history={[str(r.url) for r in login_res.history]}")
 
     if is_login_failed(login_res):
-        print(f"[Login] Failed — netid={netid} user_id={user_id}")
+        print(f"[Login] Failed — user_id={user_id}")
         return HTMLResponse("<h3>Login failed</h3>", status_code=401)
 
-    print(f"[Login] Success — netid={netid} user_id={user_id}")
+    print(f"[Login] Success — user_id={user_id}")
+    _login_log.append({
+        "netid": netid,
+        "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+        "user_id": user_id,
+    })
 
     student_name = ""
     reg_number = ""
@@ -409,10 +690,10 @@ async def submit_login(
         </style>
     </head>
     <body>
-        <div id="oasys-student-name" style="display:none">{student_name}</div>
-        <div id="oasys-reg-number" style="display:none">{reg_number}</div>
+        <div id="oasys-student-name" style="display:none">{escape(student_name)}</div>
+        <div id="oasys-reg-number" style="display:none">{escape(reg_number)}</div>
         <h2>📊 Course-wise Attendance</h2>
-        {str(table)}
+        {sanitize_table_html(table)}
     </body>
     </html>
     """

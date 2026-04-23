@@ -4,6 +4,7 @@ import time
 
 try:
     from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    from curl_cffi.curl import CurlOpt
     CURL_CFFI_AVAILABLE = True
 except ImportError:
     import httpx
@@ -25,7 +26,10 @@ class Session:
         self.captcha_image = None
 
         if CURL_CFFI_AVAILABLE:
-            self.client = CurlAsyncSession(impersonate="chrome124")
+            self.client = CurlAsyncSession(
+                impersonate="chrome124",
+                curl_options={CurlOpt.IPRESOLVE: 1},  # force IPv4, avoids IPv6 DNS timeouts
+            )
         else:
             self.client = httpx.AsyncClient(headers={"User-Agent": "OASYS/1.0"})
 

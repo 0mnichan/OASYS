@@ -99,17 +99,19 @@ const LoginForm: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError(null);
-    if (!netid || !password || !captcha) { setError("Please fill all fields"); return; }
+    if (!netid || !password || !captcha) { setError("Please fill all fields."); return; }
     setLoading(true);
     try {
       const res = await fetch(`${API}/submit_login/`, { method: "POST", body: new URLSearchParams({ user_id: userId, netid, password, captcha }) });
-      const html = await res.text();
       if (res.ok) {
+        const html = await res.text();
         sessionStorage.setItem("attendanceHTML", html);
         sessionStorage.setItem("oasys_netid", netid);
         navigate("/dashboard");
       } else {
-        setError("Login failed — check credentials or captcha.");
+        let msg = "Login failed. Try again.";
+        try { const data = await res.json(); if (data.error) msg = data.error; } catch {}
+        setError(msg);
         await fetchCaptcha(true);
       }
     } catch { setError("Network error. Try again."); await fetchCaptcha(true); }

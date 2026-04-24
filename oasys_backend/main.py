@@ -199,6 +199,19 @@ def is_login_failed(response) -> bool:
     return False
 
 
+def extract_srm_error(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    content = soup.find("div", class_="alert-icon-content")
+    if content:
+        h6 = content.find("h6")
+        if h6:
+            h6.decompose()
+        msg = " ".join(content.get_text(separator=" ").split()).strip()
+        if msg:
+            return msg
+    return "Login failed. Check your credentials and try again."
+
+
 @app.api_route("/stat", methods=["GET", "HEAD"])
 async def stat():
     return Response(content="OASYS backend alive", media_type="text/plain")
@@ -333,8 +346,9 @@ async def submit_login(
     print(f"[Login] history={[str(r.url) for r in login_res.history]}")
 
     if is_login_failed(login_res):
-        print(f"[Login] Failed — netid={netid} user_id={user_id}")
-        return HTMLResponse("<h3>Login failed</h3>", status_code=401)
+        error_msg = extract_srm_error(login_res.text)
+        print(f"[Login] Failed — user_id={user_id}: {error_msg}")
+        return JSONResponse({"error": error_msg}, status_code=401)
 
     print(f"[Login] Success — netid={netid} user_id={user_id}")
 

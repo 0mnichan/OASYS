@@ -109,12 +109,12 @@ const LoginForm: React.FC = () => {
         sessionStorage.setItem("oasys_netid", netid);
         navigate("/dashboard");
       } else {
-        let msg = "Login failed. Try again.";
+        let msg = "NetID or Password is wrong. Try again.";
         try { const data = await res.json(); if (data.error) msg = data.error; } catch {}
-        setError(msg);
         await fetchCaptcha(true);
+        setError(msg);
       }
-    } catch { setError("Network error. Try again."); await fetchCaptcha(true); }
+    } catch { await fetchCaptcha(true); setError("Network error. Try again."); }
     finally { setLoading(false); }
   };
 

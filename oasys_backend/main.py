@@ -146,6 +146,7 @@ async def get_captcha(session, login_page_html: str) -> dict:
         b64 = await fetch_captcha_image_b64(session, captcha_url, referer=SRM_LOGIN_URL)
         return {"captcha_image": b64, "captcha_solved": None}
 
+    print(f"[Captcha] Page snippet: {login_page_html[:600]!r}")
     raise ValueError("Could not find captcha in login page HTML")
 
 

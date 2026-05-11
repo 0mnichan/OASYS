@@ -132,6 +132,7 @@ async def fetch_captcha_image_b64(session, captcha_url: str, referer: str, retri
             })
             content_type = res.headers.get("content-type", "")
             if "image" not in content_type:
+                print(f"[Captcha] SCaptchaServlet non-image ({content_type}): {res.text[:600]!r}")
                 raise ValueError(f"Not an image: {content_type}")
             return base64.b64encode(res.content).decode("utf-8")
         except Exception as e:

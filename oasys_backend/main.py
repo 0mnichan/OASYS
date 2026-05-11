@@ -97,6 +97,13 @@ def extract_captcha_img_url(login_page_html: str) -> str | None:
         if src.startswith("/"):
             return f"https://sp.srmist.edu.in{src}"
         return src
+    # SRM may set the captcha src via JS — scan raw HTML for the servlet URL
+    match = re.search(r'["\']([^"\']*SCaptchaServlet[^"\']*)["\']', login_page_html)
+    if match:
+        url = match.group(1)
+        if url.startswith("/"):
+            return f"https://sp.srmist.edu.in{url}"
+        return url
     return None
 
 

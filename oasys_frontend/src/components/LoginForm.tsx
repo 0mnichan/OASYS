@@ -6,7 +6,7 @@ import { applyTheme, initTheme } from "@/components/NavBar";
 const API = "";
 
 // Set to false to re-enable login when fixed
-const MAINTENANCE = true;
+const MAINTENANCE = false;
 
 const _googleFont = (() => {
   if (typeof document === 'undefined') return;

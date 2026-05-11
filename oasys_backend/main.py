@@ -146,7 +146,18 @@ async def get_captcha(session, login_page_html: str) -> dict:
         b64 = await fetch_captcha_image_b64(session, captcha_url, referer=SRM_LOGIN_URL)
         return {"captcha_image": b64, "captcha_solved": None}
 
-    print(f"[Captcha] Page snippet: {login_page_html[:600]!r}")
+    page_len = len(login_page_html)
+    sc_count = login_page_html.count("SCaptchaServlet")
+    ct_count = login_page_html.lower().count("captcha")
+    img_count = login_page_html.count("<img")
+    print(f"[Captcha] HTML len={page_len} SCaptchaServlet={sc_count} captcha={ct_count} <img={img_count}")
+    # Locate first occurrence of "captcha" and log surrounding context
+    pos = login_page_html.lower().find("captcha")
+    if pos >= 0:
+        print(f"[Captcha] First 'captcha' at pos {pos}: {login_page_html[max(0,pos-80):pos+300]!r}")
+    else:
+        # No captcha at all — log a larger slice to identify the page type
+        print(f"[Captcha] No 'captcha' found. First 2000 chars: {login_page_html[:2000]!r}")
     raise ValueError("Could not find captcha in login page HTML")
 
 

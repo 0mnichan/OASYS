@@ -116,7 +116,7 @@ async def fetch_captcha_image_b64(session, captcha_url: str, referer: str, retri
     last_exc = None
     for attempt in range(retries):
         try:
-            res = await session.client.get(captcha_url, timeout=10.0, headers={
+            res = await session.client.post(captcha_url, timeout=10.0, headers={
                 "User-Agent": UA,
                 "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",

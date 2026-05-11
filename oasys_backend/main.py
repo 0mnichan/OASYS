@@ -4,6 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from bs4 import BeautifulSoup
 from urllib.parse import urlencode
 import base64
+import json as _json
 import random
 import re
 import math
@@ -25,7 +26,8 @@ app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")
 
 SRM_BASE_URL       = "https://sp.srmist.edu.in/srmiststudentportal"
 SRM_LOGIN_URL      = f"{SRM_BASE_URL}/students/loginManager/youLogin.jsp"
-SRM_LOGIN_SUBMIT   = "https://sp.srmist.edu.in/srmiststudentportal/SLoginServlet"
+SRM_LOGIN_SUBMIT   = "https://sp.srmist.edu.in/srmiststudentportal/LoginServlet"
+SRM_FP_TOKEN_URL   = f"{SRM_BASE_URL}/fpToken"
 SRM_ATTENDANCE_URL = f"{SRM_BASE_URL}/students/report/studentAttendanceDetails.jsp"
 SRM_HOME_URL       = f"{SRM_BASE_URL}/students/loginManager/UserHomePage.jsp"
 
@@ -72,6 +74,15 @@ LOGIN_SUBMIT_HEADERS = {
 }
 
 
+FINGERPRINT_TEMPLATE = {
+    "userAgent": UA,
+    "platform": "Linux x86_64",
+    "language": "en-US",
+    "screen": "1920x1080",
+    "timezone": "Asia/Calcutta",
+}
+
+
 def compute_js_response(js_challenge: str) -> tuple[str, str]:
     width, height = random.choice(SCREEN_SIZES)
     cores = random.choice(CONCURRENCY)
@@ -112,6 +123,43 @@ def extract_captcha_text(login_page_html: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
+def extract_captcha_data_url(login_page_html: str) -> str | None:
+    """SRM now pre-embeds the captcha directly in img#captchaImg as a data URL."""
+    soup = BeautifulSoup(login_page_html, "html.parser")
+    img = soup.find("img", id="captchaImg")
+    if img:
+        src = img.get("src", "")
+        if src.startswith("data:image") and "base64," in src:
+            return src.split("base64,", 1)[1]
+    return None
+
+
+async def get_fp_token(session, login_page_html: str) -> str:
+    """Replicate SRM's funLoadNonce() — POST fingerprint to /fpToken, get back signed token."""
+    soup = BeautifulSoup(login_page_html, "html.parser")
+    nonce_el = soup.find("input", id="fpNonce")
+    nonce = nonce_el["value"] if nonce_el else ""
+    fp_payload = _json.dumps({
+        "fp": FINGERPRINT_TEMPLATE,
+        "nonce": nonce,
+        "ts": int(time.time() * 1000),
+    })
+    res = await session.client.post(
+        SRM_FP_TOKEN_URL,
+        data=urlencode({"fpPayload": fp_payload}),
+        headers={
+            **BROWSER_HEADERS,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Referer": SRM_LOGIN_URL,
+        },
+        timeout=10.0,
+    )
+    data = res.json()
+    if "fpToken" not in data:
+        raise ValueError(f"fpToken missing from response: {res.text[:200]}")
+    return data["fpToken"]
+
+
 async def fetch_captcha_image_b64(session, captcha_url: str, referer: str, retries: int = 4, delay: float = 1.0) -> str:
     last_exc = None
     for attempt in range(retries):
@@ -143,11 +191,19 @@ async def fetch_captcha_image_b64(session, captcha_url: str, referer: str, retri
 
 
 async def get_captcha(session, login_page_html: str) -> dict:
+    # New (May 2025): captcha is pre-embedded in HTML as data:image/png;base64,...
+    b64 = extract_captcha_data_url(login_page_html)
+    if b64:
+        print("[Captcha] Embedded data URL mode")
+        return {"captcha_image": b64, "captcha_solved": None}
+
+    # Legacy: plain text captcha
     text = extract_captcha_text(login_page_html)
     if text:
         print(f"[Captcha] Plain text mode: '{text}'")
         return {"captcha_image": None, "captcha_solved": text}
 
+    # Legacy: SCaptchaServlet image URL
     captcha_url = extract_captcha_img_url(login_page_html)
     if captcha_url:
         print(f"[Captcha] Image mode: {captcha_url}")
@@ -336,20 +392,15 @@ async def submit_login(
     if not session:
         return HTMLResponse("<h3>Session expired</h3>", status_code=400)
 
-    hidden_fields = parse_hidden_fields(session.login_page_html)
-    js_challenge = hidden_fields.get("jsChallenge", "")
-    js_response, fingerprint = compute_js_response(js_challenge)
+    fp_token = await get_fp_token(session, session.login_page_html)
 
     payload = {
         "username": netid,
         "password": password,
         "captcha": captcha,
-        "txtPageAction": "0",
-        "csrfToken": hidden_fields.get("csrfToken", ""),
-        "jsChallenge": js_challenge,
-        "jsResponse": js_response,
-        "fingerprint": fingerprint,
-        "netId": "",
+        "fpPayload": "",
+        "fpToken": fp_token,
+        "recaptchaToken": "",
     }
 
     await asyncio.sleep(1.5)

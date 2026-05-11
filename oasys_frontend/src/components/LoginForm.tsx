@@ -5,6 +5,9 @@ import { applyTheme, initTheme } from "@/components/NavBar";
 
 const API = "";
 
+// Set to false to re-enable login when fixed
+const MAINTENANCE = true;
+
 const _googleFont = (() => {
   if (typeof document === 'undefined') return;
   if (document.querySelector('link[data-oasys-font]')) return;
@@ -59,7 +62,7 @@ const LoginForm: React.FC = () => {
 
   useEffect(() => {
     setIsDark(initTheme());
-    fetchCaptcha();
+    if (!MAINTENANCE) fetchCaptcha();
   }, []);
 
   const toggleTheme = () => {
@@ -119,6 +122,44 @@ const LoginForm: React.FC = () => {
   };
 
   const canSubmit = !loading && captchaAuto !== null && !!captcha;
+
+  if (MAINTENANCE) {
+    return (
+      <div style={{ width: '100%', maxWidth: 420, fontFamily: FONT }}>
+        <div style={{
+          background: 'var(--bg-glass)',
+          backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
+          border: '1px solid var(--border-glass)', borderRadius: 24,
+          padding: 'clamp(24px,5vw,36px)',
+          boxShadow: 'var(--shadow-glass)',
+          position: 'relative',
+        }}>
+          <button onClick={toggleTheme} title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{
+              position: 'absolute', top: 16, right: 16,
+              width: 36, height: 36, borderRadius: 10,
+              background: 'var(--bg-tile)', border: '1px solid var(--border-card)',
+              color: 'var(--text-secondary)', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0, overflow: 'hidden',
+            }}>
+            <ThemeIcon isDark={isDark} />
+          </button>
+          <div style={{ marginBottom: 20, paddingRight: 48 }}>
+            <h2 style={{ fontFamily: FONT, fontWeight: 700, fontSize: 'clamp(20px,4vw,26px)', color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em' }}>
+              Down for Maintenance
+            </h2>
+            <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
+              SRM RMP Student Portal
+            </p>
+          </div>
+          <p style={{ fontFamily: FONT, fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>
+            OASYS is temporarily unavailable while we work on a fix. We'll be back at the start of the upcoming semester. Thanks for your patience!
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ width: '100%', maxWidth: 420, fontFamily: FONT }}>

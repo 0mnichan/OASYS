@@ -6,7 +6,7 @@ import { applyTheme, initTheme } from "@/components/NavBar";
 const API = "";
 
 // Set to false to re-enable login when fixed
-const MAINTENANCE = false;
+const MAINTENANCE = true;
 
 const _googleFont = (() => {
   if (typeof document === 'undefined') return;
@@ -125,38 +125,35 @@ const LoginForm: React.FC = () => {
 
   if (MAINTENANCE) {
     return (
-      <div style={{ width: '100%', maxWidth: 420, fontFamily: FONT }}>
-        <div style={{
-          background: 'var(--bg-glass)',
-          backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
-          border: '1px solid var(--border-glass)', borderRadius: 24,
-          padding: 'clamp(24px,5vw,36px)',
-          boxShadow: 'var(--shadow-glass)',
-          position: 'relative',
-        }}>
-          <button onClick={toggleTheme} title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            style={{
-              position: 'absolute', top: 16, right: 16,
-              width: 36, height: 36, borderRadius: 10,
-              background: 'var(--bg-tile)', border: '1px solid var(--border-card)',
-              color: 'var(--text-secondary)', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, overflow: 'hidden',
-            }}>
-            <ThemeIcon isDark={isDark} />
-          </button>
-          <div style={{ marginBottom: 20, paddingRight: 48 }}>
-            <h2 style={{ fontFamily: FONT, fontWeight: 700, fontSize: 'clamp(20px,4vw,26px)', color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.01em' }}>
-              Down for Maintenance
-            </h2>
-            <p style={{ fontFamily: FONT_MONO, fontSize: 11, color: 'var(--text-tertiary)', marginTop: 5 }}>
-              SRM RMP Student Portal
-            </p>
-          </div>
-          <p style={{ fontFamily: FONT, fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, margin: 0 }}>
-            OASYS is temporarily unavailable while we work on a fix. We'll be back at the start of the upcoming semester. Thanks for your patience!
-          </p>
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: '#0078D4',
+        color: '#fff',
+        fontFamily: '"Segoe UI", "Helvetica Neue", Arial, sans-serif',
+        display: 'flex', flexDirection: 'column',
+        justifyContent: 'center', alignItems: 'flex-start',
+        padding: 'clamp(32px, 10vw, 120px)',
+        boxSizing: 'border-box',
+      }}>
+        <div style={{ fontSize: 'clamp(80px, 18vw, 148px)', fontWeight: 300, lineHeight: 1, marginBottom: 'clamp(16px, 3vw, 32px)' }}>
+          :(
         </div>
+        <p style={{ fontSize: 'clamp(16px, 2.2vw, 24px)', fontWeight: 400, margin: '0 0 clamp(12px,2vw,20px)', maxWidth: 620, lineHeight: 1.4 }}>
+          OASYS ran into a problem and needs to restart.
+        </p>
+        <p style={{ fontSize: 'clamp(13px, 1.4vw, 16px)', fontWeight: 400, margin: '0 0 clamp(24px,4vw,48px)', maxWidth: 560, lineHeight: 1.7, opacity: 0.92 }}>
+          We're working on a fix. We'll be back next semester.&nbsp;
+          <span style={{ whiteSpace: 'nowrap' }}>(0% complete)</span>
+        </p>
+        <p style={{ fontSize: 'clamp(11px, 1.1vw, 14px)', margin: '0 0 6px', opacity: 0.85 }}>
+          For more information about this issue visit
+        </p>
+        <p style={{ fontSize: 'clamp(11px, 1.1vw, 14px)', margin: '0 0 clamp(24px,4vw,48px)', opacity: 0.85 }}>
+          https://oasys.rohithjv.in
+        </p>
+        <p style={{ fontSize: 'clamp(11px, 1.1vw, 14px)', margin: 0, opacity: 0.85 }}>
+          Stop code:&nbsp;<span style={{ fontFamily: '"Segoe UI Mono", "Consolas", monospace' }}>SRM_WAF_BYPASS_FAILED</span>
+        </p>
       </div>
     );
   }

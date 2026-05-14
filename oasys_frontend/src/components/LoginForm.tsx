@@ -146,10 +146,10 @@ const LoginForm: React.FC = () => {
           <span style={{ whiteSpace: 'nowrap' }}>(0% complete)</span>
         </p>
         <p style={{ fontSize: 'clamp(11px, 1.1vw, 14px)', margin: '0 0 6px', opacity: 0.85 }}>
-          For more information about this issue visit
+          Visit original website
         </p>
         <p style={{ fontSize: 'clamp(11px, 1.1vw, 14px)', margin: '0 0 clamp(24px,4vw,48px)', opacity: 0.85 }}>
-          https://oasys.rohithjv.in
+          sp.srmist.edu.in
         </p>
         <p style={{ fontSize: 'clamp(11px, 1.1vw, 14px)', margin: 0, opacity: 0.85 }}>
           Stop code:&nbsp;<span style={{ fontFamily: '"Segoe UI Mono", "Consolas", monospace' }}>SRM_WAF_BYPASS_FAILED</span>

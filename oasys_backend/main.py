@@ -20,6 +20,8 @@ from utils import parse_hidden_fields
 
 app = FastAPI()
 
+MAINTENANCE = True
+
 frontend_path = os.path.join(os.path.dirname(__file__), "../oasys_frontend/dist")
 
 app.mount("/assets", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="assets")
@@ -339,6 +341,8 @@ async def serve_spa(full_path: str):
 
 @app.post("/start_login/")
 async def start_login(user_id: str = Form(...)):
+    if MAINTENANCE:
+        return JSONResponse({"error": "Service unavailable"}, status_code=503)
     if _warm_pool:
         warm = _warm_pool.popleft()
         print(f"[Warm] Serving warm session to {user_id} (pool now {len(_warm_pool)}/{WARM_POOL_SIZE})")
@@ -365,6 +369,8 @@ async def start_login(user_id: str = Form(...)):
 
 @app.post("/refresh_captcha/")
 async def refresh_captcha(user_id: str = Form(...)):
+    if MAINTENANCE:
+        return JSONResponse({"error": "Service unavailable"}, status_code=503)
     session = get_session(user_id)
     if not session:
         return JSONResponse({"error": "Session invalid"}, status_code=400)
@@ -388,6 +394,8 @@ async def submit_login(
     password: str = Form(...),
     captcha: str = Form(...),
 ):
+    if MAINTENANCE:
+        return JSONResponse({"error": "Service unavailable"}, status_code=503)
     session = get_session(user_id)
     if not session:
         return HTMLResponse("<h3>Session expired</h3>", status_code=400)
@@ -519,5 +527,6 @@ async def submit_login(
 async def start_background_tasks():
     global _warm_needed
     _warm_needed = asyncio.Event()
-    asyncio.create_task(_warm_loop())
+    if not MAINTENANCE:
+        asyncio.create_task(_warm_loop())
     asyncio.create_task(cleanup_sessions())
